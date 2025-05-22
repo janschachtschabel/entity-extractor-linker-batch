@@ -1,0 +1,370 @@
+"""
+renderer.py
+
+Funktionen zum Rendern von Wissensgraphen in verschiedene Ausgabeformate.
+"""
+
+import networkx as nx
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
+from matplotlib import cm, colors as mcolors
+import os
+import logging
+import math
+import re
+from pathlib import Path
+from pyvis.network import Network
+import json
+
+def render_graph_to_png(G, output_path, config=None):
+    """
+    Rendert einen gerichteten Graphen als statisches PNG-Bild.
+    
+    Args:
+        G (nx.DiGraph): Der zu rendernde Graph.
+        output_path (str): Der Ausgabepfad für die PNG-Datei.
+        config (dict, optional): Konfigurationsoptionen für das Rendering.
+        
+    Returns:
+        str: Der Pfad zur erzeugten PNG-Datei.
+    """
+    try:
+        logging.info(f"Rendering graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges to {output_path}")
+        
+        if G.number_of_nodes() == 0 or G.number_of_edges() == 0:
+            logging.error("Cannot render graph with no nodes or edges.")
+            return None
+            
+        # Erstelle Ausgabeverzeichnis, falls nicht vorhanden
+        output_dir = os.path.dirname(output_path)
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Wähle den Stil basierend auf der Konfiguration
+        style = config.get("GRAPH_STYLE", "modern") if config else "modern"
+        
+        # Überlappungsprävention
+        min_dist = 0.1
+        for _ in range(50):
+            overlap = False
+            for n1, p1 in pos.items():
+                for n2, p2 in pos.items():
+                    if n1 != n2:
+                        dx = p1[0] - p2[0]
+                        dy = p1[1] - p2[1]
+                        dist = (dx**2 + dy**2)**0.5
+                        if dist < min_dist:
+                            # Bewege die Knoten leicht auseinander
+                            factor = min_dist / (dist + 1e-6) - 1.0
+                            pos[n1][0] += dx * factor * 0.5
+                            pos[n1][1] += dy * factor * 0.5
+                            pos[n2][0] -= dx * factor * 0.5
+                            pos[n2][1] -= dy * factor * 0.5
+                            overlap = True
+            if not overlap:
+                break
+    
+    # Sammle Entitätstypen für die Farbzuweisung
+    entity_types = set()
+    for _, data in G.nodes(data=True):
+        entity_type = data.get('entity_type', 'Unknown')
+        entity_types.add(entity_type)
+    
+    # Erstelle eine Farbpalette basierend auf dem gewählten Stil
+    if style == "minimal":
+        # Minimalistischer Stil mit Grautönen
+        colors = ['#333333', '#555555', '#777777', '#999999', '#BBBBBB', '#DDDDDD']
+        node_size = 600
+        font_size = 9
+        edge_color = '#555555'
+        alpha = 0.8
+    elif style == "classic":
+        # Klassischer Stil mit kräftigen Farben
+        colors = plt.cm.Set1.colors
+        node_size = 1000
+        font_size = 11
+        edge_color = '#000000'
+        alpha = 1.0
+    else:  # "modern" (Standard)
+        # Moderner Stil mit angenehmen Farben
+        colors = plt.cm.tab10.colors
+        node_size = 800
+        font_size = 10
+        edge_color = '#333333'
+        alpha = 0.9
+    
+    # Erstelle eine Farbzuordnung für Entitätstypen
+    color_map = {}
+    for i, entity_type in enumerate(sorted(entity_types)):
+        color_map[entity_type] = colors[i % len(colors)]
+    
+    # Zeichne Knoten mit Farben basierend auf Entitätstyp
+    node_colors = [color_map.get(G.nodes[node].get('entity_type', 'Unknown'), 'gray') for node in G.nodes()]
+    
+    # Zeichne Kanten mit unterschiedlichen Stilen für explizite und implizite Beziehungen
+    edge_styles = []
+    edge_widths = []
+    
+    for _, _, data in G.edges(data=True):
+        if data.get('inferred') == 'implicit':
+            edge_styles.append('dashed')
+            edge_widths.append(1.0)
+        else:  # explicit
+            edge_styles.append('solid')
+            edge_widths.append(1.5)
+    
+    # Zeichne den Graphen
+    nx.draw_networkx(
+        G, pos, 
+        with_labels=True,
+        node_color=node_colors,
+        node_size=node_size,
+        font_size=font_size,
+        font_weight='bold',
+        arrowsize=15,
+        width=edge_widths,
+        style=edge_styles,
+        edge_color=edge_color,
+        arrows=True,
+        alpha=alpha
+    )
+    
+    # Füge eine Legende für die Entitätstypen hinzu
+    legend_elements = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color, 
+                                  markersize=10, label=entity_type) 
+                      for entity_type, color in color_map.items()]
+    
+    # Füge Legendenelemente für die Kantentypen hinzu
+    legend_elements.append(plt.Line2D([0], [0], color=edge_color, lw=1.5, label='Explizite Beziehung'))
+    legend_elements.append(plt.Line2D([0], [0], color=edge_color, lw=1, linestyle='dashed', label='Implizite Beziehung'))
+    
+    plt.legend(handles=legend_elements, loc='upper right')
+    plt.axis('off')
+    plt.tight_layout()
+    
+    # Speichere das Bild
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return output_path
+        edge_labels = nx.get_edge_attributes(G, "label")
+        nx.draw_networkx_edge_labels(
+            G, 
+            pos, 
+            edge_labels=edge_labels, 
+            font_size=8, 
+            ax=ax
+        )
+        
+        # Setze symmetrische Achsengrenzen, um den Graphen mit Puffer zu zentrieren
+        xs = [coords[0] for coords in pos.values()]
+        ys = [coords[1] for coords in pos.values()]
+        if xs and ys:
+            max_x = max(abs(x) for x in xs)
+            max_y = max(abs(y) for y in ys)
+            max_range = max(max_x, max_y)
+            # Verwende 15% Puffer für mehr Freiraum und um Beschneidung zu vermeiden
+            buffer = max_range * 0.15
+            ax.set_xlim(-max_range - buffer, max_range + buffer)
+            ax.set_ylim(-max_range - buffer, max_range + buffer)
+            
+        ax.set_axis_off()
+        
+        # Legende für Beziehungstypen
+        legend_elements = [
+            Line2D([0], [0], color="#222", lw=2.4, label="Explicit relationship →"),
+            Line2D([0], [0], color="#888", lw=2.0, linestyle="dashed", label="Implicit relationship →")
+        ]
+        
+        # Typ-Farben-Legende auf Basis der Knoten
+        type_color_map = {}
+        for node in G.nodes():
+            typ = G.nodes[node].get('entity_type', '')
+            color = G.nodes[node].get('color', '#f2f2f2')
+            if typ:
+                type_color_map[typ] = color
+                
+        for typ, color in sorted(type_color_map.items()):
+            legend_elements.append(Patch(facecolor=color, edgecolor="#444", label=typ.capitalize()))
+            
+        # Füge Legende auf Figurebene hinzu (untere linke Ecke)
+        fig.legend(
+            handles=legend_elements, 
+            loc="lower left",
+            bbox_to_anchor=(0.02, 0.02), 
+            bbox_transform=fig.transFigure,
+            fontsize=9, 
+            frameon=True, 
+            facecolor="white", 
+            edgecolor="#aaa"
+        )
+        
+        # Entferne alle Subplot-Ränder für maximale Zeichenfläche
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+        
+        # Speichere das Bild
+        fig.savefig(output_path, dpi=180)
+        plt.close(fig)
+        
+        logging.info(f"Knowledge Graph PNG gespeichert: {output_path}")
+        return output_path
+        
+    except Exception as e:
+        logging.error(f"Fehler beim Rendern des PNG-Graphen: {str(e)}", exc_info=True)
+        raise
+
+def render_graph_to_html(G, output_path, config=None):
+    """
+    Rendert einen gerichteten Graphen als interaktive HTML-Visualisierung.
+    
+    Args:
+        G (nx.DiGraph): Der zu rendernde Graph.
+        output_path (str): Der Ausgabepfad für die HTML-Datei.
+        config (dict, optional): Konfigurationsoptionen für das Rendering.
+        
+    Returns:
+        str: Der Pfad zur erzeugten HTML-Datei.
+    """
+    try:
+        logging.info(f"Rendering interactive graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges to {output_path}")
+        
+        if G.number_of_nodes() == 0 or G.number_of_edges() == 0:
+            logging.error("Cannot render interactive graph with no nodes or edges.")
+            return None
+            
+        # Erstelle Ausgabeverzeichnis, falls nicht vorhanden
+        output_dir = os.path.dirname(output_path)
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        
+        if config is None:
+            config = {}
+            
+        # Bestimme Layout-Methode und Parameter
+        layout_method = config.get("GRAPH_LAYOUT_METHOD", "kamada_kawai")
+        layout_k = config.get("GRAPH_LAYOUT_K")
+        layout_iters = config.get("GRAPH_LAYOUT_ITERATIONS", 50)
+        
+        # Berechne Positionen basierend auf der konfigurierten Layout-Methode
+        if layout_method == "spring":
+            pos = nx.spring_layout(G, k=layout_k, iterations=layout_iters)
+        else:
+            pos = nx.kamada_kawai_layout(G)
+            
+        # Skaliere Positionen gemäß GRAPH_PNG_SCALE-Einstellung
+        scale = config.get("GRAPH_PNG_SCALE", 0.33)
+        pos = {node: (coords[0] * scale, coords[1] * scale) for node, coords in pos.items()}
+        
+        # Verhindere Knotenüberlappung, falls aktiviert
+        if config.get("GRAPH_PHYSICS_PREVENT_OVERLAP", True):
+            nodes = list(pos.keys())
+            min_dist = config.get("GRAPH_PHYSICS_PREVENT_OVERLAP_DISTANCE", 0.1)
+            for _ in range(config.get("GRAPH_PHYSICS_PREVENT_OVERLAP_ITERATIONS", 50)):
+                moved = False
+                for i in range(len(nodes)):
+                    for j in range(i+1, len(nodes)):
+                        n1, n2 = nodes[i], nodes[j]
+                        x1, y1 = pos[n1]
+                        x2, y2 = pos[n2]
+                        dx, dy = x1 - x2, y1 - y2
+                        dist = math.hypot(dx, dy)
+                        if dist < min_dist:
+                            if dist == 0:
+                                dx, dy = 0.01, 0.01
+                                dist = math.hypot(dx, dy)
+                            shift = (min_dist - dist) / 2
+                            ux, uy = dx / dist, dy / dist
+                            pos[n1] = (x1 + ux * shift, y1 + uy * shift)
+                            pos[n2] = (x2 - ux * shift, y2 - uy * shift)
+                            moved = True
+                if not moved:
+                    break
+                    
+        # Zentriere Graphpositionen durch Subtraktion der Mittelwertkoordinaten
+        mean_x = sum(x for x, _ in pos.values()) / len(pos) if pos else 0
+        mean_y = sum(y for _, y in pos.values()) / len(pos) if pos else 0
+        pos = {node: (x - mean_x, y - mean_y) for node, (x, y) in pos.items()}
+        
+        # Erstelle interaktives Netzwerk mit PyVis
+        net = Network(height="800px", width="100%", directed=True, bgcolor="#ffffff", font_color="#222", notebook=False)
+        
+        # Wiederverwendung der statischen Positionen und Invertierung von Y für übereinstimmende Ausrichtung
+        scale_px = config.get("GRAPH_INTERACTIVE_SCALE", 1000)
+        pos_inter = {node: (coords[0] * scale_px, -coords[1] * scale_px) for node, coords in pos.items()}
+        
+        # Typ-Farben-Legende auf Basis der Knoten
+        type_color_map = {}
+        
+        # Füge Knoten hinzu
+        for node in G.nodes():
+            x, y = pos_inter.get(node, (0, 0))
+            entity_type = G.nodes[node].get('entity_type', '')
+            color = G.nodes[node].get('color', '#f2f2f2')
+            
+            if entity_type:
+                type_color_map[entity_type] = color
+                
+            # Erstelle Tooltip mit zusätzlichen Informationen
+            title = f"<b>{node}</b>"
+            if entity_type:
+                title += f"<br><i>Type: {entity_type}</i>"
+                
+            # Füge zusätzliche Informationen hinzu, falls vorhanden
+            wiki_url = G.nodes[node].get('wikipedia_url', '')
+            if wiki_url:
+                title += f"<br>Wikipedia: <a href='{wiki_url}' target='_blank'>{wiki_url.split('/')[-1].replace('_', ' ')}</a>"
+                
+            wikidata_id = G.nodes[node].get('wikidata_id', '')
+            if wikidata_id:
+                title += f"<br>Wikidata: <a href='https://www.wikidata.org/wiki/{wikidata_id}' target='_blank'>{wikidata_id}</a>"
+                
+            net.add_node(node, label=node, title=title, color=color, x=x, y=y, physics=False)
+            
+        # Füge Kanten hinzu
+        for u, v, d in G.edges(data=True):
+            label = d.get("label", "")
+            is_dashed = d.get("style", "") == "dashed"
+            net.add_edge(
+                u, v, 
+                label=label, 
+                color="#333", 
+                arrows="to",
+                dashes=is_dashed, 
+                font={"size": 10}, 
+                smooth=False
+            )
+            
+        # Speichere interaktives HTML direkt
+        net.write_html(output_path)
+        
+        # Injiziere HTML-Legende am Seitenanfang
+        legend_html = '<div style="padding:8px; background:#f9f9f9; border:1px solid #ddd; margin:0 auto 8px auto; border-radius:5px; font-size:12px; max-width:800px; text-align:center;">'
+        legend_html += '<h4 style="margin-top:0; margin-bottom:5px;">Knowledge Graph</h4>'
+        
+        # Legende für Entitätstypen
+        legend_html += '<div style="margin:5px 0"><b>Entity Types:</b> '
+        for typ, color in sorted(type_color_map.items()):
+            legend_html += f'<span style="background:{color};border:1px solid #444;padding:1px 4px;margin-right:4px;display:inline-block;font-size:11px;">{typ.capitalize()}</span>'
+        legend_html += '</div>'
+        
+        # Legende für Beziehungstypen
+        legend_html += '<div style="margin:5px 0"><b>Relationships:</b> '
+        legend_html += '<span style="border-bottom:1px solid #333;padding:1px 4px;margin-right:5px;display:inline-block;font-size:11px;">Explicit</span>'
+        legend_html += '<span style="border-bottom:1px dashed #555;padding:1px 4px;display:inline-block;font-size:11px;">Implicit</span>'
+        legend_html += '</div></div>'
+        
+        # Füge die Legende nach dem <body>-Tag ein
+        with open(output_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+            
+        if '<body>' in html_content:
+            html_content = html_content.replace('<body>', '<body>\n' + legend_html + '\n')
+            
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+            
+        logging.info(f"Interaktive Knowledge Graph HTML gespeichert: {output_path}")
+        return output_path
+        
+    except Exception as e:
+        logging.error(f"Fehler beim Rendern des HTML-Graphen: {str(e)}", exc_info=True)
+        raise
