@@ -27,7 +27,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from entityextractor.api import process_entities  # noqa: E402  pylint: disable=wrong-import-position
+from entityextractor.api import process_entities 
 
 TOPIC = "Große Städte in Deutschland"  # LLM should generate German cities
 

@@ -90,7 +90,7 @@ logger.add(sys.stderr, level="INFO")
 # Main
 # ---------------------------------------------------------------------------
 async def main() -> None:
-    print("Starte Extraktion & Linking …\n")
+    print("Starte Prozess …\n")
     result: Dict[str, Any] = await process_entities(SAMPLE_TEXT, CONFIG)
 
     # 1) Tabelle Entitäten

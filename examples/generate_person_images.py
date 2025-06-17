@@ -29,7 +29,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from entityextractor.api import process_entities  # noqa: E402
+from entityextractor.api import process_entities
 
 TOPIC = "Nobel Prize in Physics"  # very likely to yield persons
 

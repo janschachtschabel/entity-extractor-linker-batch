@@ -70,25 +70,49 @@ export OPENAI_API_KEY="<dein_api_key>"
 
 ### High-Level Convenience
 
-| Funktion | Beschreibung |
-| -------- | ------------ |
-| `extract_and_link_entities(text, config)` | Extrahiert Entitäten aus freiem Text und verknüpft sie |
-| `generate_and_link_entities(topic, config)` | Generiert thematische Entitäten und verknüpft sie |
-| `create_knowledge_compendium(topic, config)` | Erstellt ein Kompendium inkl. Graph-Visualisierung |
-| `process_entities(input_data, config)` | Universeller Wrapper; erkennt Modus automatisch |
+`process_entities` ist der empfohlene Einstiegspunkt – er erkennt automatisch, ob du Text extrahieren, Entitäten generieren oder ein Kompendium erstellen möchtest.  
+Die älteren Convenience-Funktionen existieren weiterhin (Alias aufs gleiche Backend) und können für Klarheit verwendet werden, sind aber nicht mehr zwingend nötig.
+
+| Funktion | Status | Kurzbeschreibung |
+| -------- | ------- | ---------------- |
+| `process_entities(input_data, config)` | **empfohlen** | Universeller Wrapper; erkennt Modus automatisch |
+| `extract_and_link_entities(text, config)` | Alias | Spezialisierte Funktion für reine Text-Extraktion |
+| `generate_and_link_entities(topic, config)` | Alias | Generiert thematische Entitäten und verknüpft sie |
+| `create_knowledge_compendium(topic, config)` | Alias | Erstellt ein Kompendium inkl. Graph-Visualisierung |
 
 Alle Funktionen sind `async`. Beispiel:
 
 ```python
-import asyncio
-from entityextractor.api import extract_and_link_entities
+import asyncio, json
+from typing import Dict, Any
+from entityextractor.api import process_entities
 
-async def main():
-    res = await extract_and_link_entities("Berlin ist die Hauptstadt Deutschlands.", {"LANGUAGE": "de"})
-    print(res)
+async def main() -> None:
+    print("Starte Prozess …\n")
+    sample_text = "Berlin ist die Hauptstadt Deutschlands."
+    config: Dict[str, Any] = {"LANGUAGE": "de"}
+    result: Dict[str, Any] = await process_entities(sample_text, config)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 asyncio.run(main())
 ```
+
+### Beispielskripte (Ordner `examples/`)
+
+| Script | Zweck |
+|--------|-------|
+| `examples/example_extract.py` | Einfaches Extraktions-Beispiel für einen Text |
+| `examples/generate_location_geo.py` | Generiert Orte inkl. Geo-Koordinaten und verlinkt sie |
+| `examples/generate_compendium_qa_quantenmechanik.py` | Erstellt Thema-Kompendium & Frage-Antwort-Paare |
+| `examples/minimal_generate.py` | Minimaler Einstieg in die Entitätsgenerierung |
+
+Starte ein Skript direkt über die Kommandozeile, z.B.:
+
+```bash
+python examples/generate_location_geo.py
+```
+
+Alle Skripte greifen intern auf `await process_entities(...)` zurück und können als Vorlage für eigene Workflows dienen.
 
 #### Low-Level-Helpers
 Weitere Hilfsfunktionen findest du im Modul `entityextractor.core.api` (`extract_entities`, `link_entities`, `infer_entity_relationships` …).
@@ -102,11 +126,14 @@ Kurzfassung des Ergebnis-JSONs:
   "entities": [
     {
       "entity": "Albert Einstein",
-      "details": { "typ": "Person", "inferred": "explicit" },
+      "details": {
+        "typ": "Person",
+        "inferred": "explicit"
+      },
       "sources": {
-        "wikipedia": { /* ... */ },
-        "wikidata": { /* ... */ },
-        "dbpedia": { /* ... */ }
+        "wikipedia": { /* … */ },
+        "wikidata":  { /* … */ },
+        "dbpedia":   { /* … */ }
       }
     }
   ],
@@ -122,16 +149,52 @@ Kurzfassung des Ergebnis-JSONs:
   ],
   "statistics": {
     "total_entities": 1,
-    "types_distribution": { "Person": 1 },
-    "linked": { "wikipedia": 1, "wikidata": 1, "dbpedia": 0 },
-    "entity_connections": [ { "entity": "Albert Einstein", "count": 1 } ]
+    "total_relationships": 1,
+
+    "types_distribution": {
+      "Person": 1,
+      "Theorie": 1
+    },
+
+    "linked": {
+      "wikipedia": { "count": 1, "percent": 100.0 },
+      "wikidata":  { "count": 1, "percent": 100.0 },
+      "dbpedia":   { "count": 0, "percent": 0.0 }
+    },
+
+    "entity_connections": [
+      { "entity": "Albert Einstein",        "count": 1 },
+      { "entity": "Relativitätstheorie",    "count": 1 }
+    ],
+
+    "top10": {
+      "wikidata_part_of":   { "Physik": 1 },
+      "wikidata_has_part":  {},
+      "dbpedia_part_of":    {},
+      "dbpedia_has_part":   {},
+      "dbpedia_subjects":   {}
+    }
   },
+
   "knowledgegraph_visualisation": {
     "static": "knowledge_graph.png",
     "interactive": "knowledge_graph_interactive.html"
   }
 }
 ```
+
+**Statistik-Felder – Kurzüberblick**
+
+| Feld | Beschreibung |
+|------|--------------|
+| `total_entities` | Anzahl aller verarbeiteten Entitäten |
+| `total_relationships` | Gesamtzahl erkannter Beziehungen |
+| `types_distribution` | Häufigkeit pro Entitätstyp |
+| `linked` | Für Wikipedia / Wikidata / DBpedia: Treffer-Anzahl & Prozentanteil |
+| `entity_connections` | Anzahl eindeutiger Verknüpfungen pro Entität |
+| `top10.wikidata_part_of` usw. | Top-Beziehungen und DBpedia-Subjects (max. 10) |
+
+Weitere Felder können je nach aktivierten Services hinzukommen (z. B. Laufzeiten oder Fallback-Statistiken).
 
 Nur wenn die strikten Validierungskriterien eines Services erfüllt sind (z. B. URI + EN-Label + EN-Abstract bei DBpedia), wird dessen `status` auf `linked` gesetzt.
 
@@ -292,7 +355,33 @@ result = create_knowledge_compendium(topic, config)
 
 ```plaintext
 .
-├── .pytest_cache/                    # pytest Cache-Verzeichnis
+├── entityextractor/                  # Hauptpaket
+│   ├── api.py                        # Öffentliche API-Schnittstelle
+│   ├── main.py
+│   ├── models/                       # Pydantic-Datenmodelle
+│   ├── schemas/                      # JSON-Schemas & Datendefinitionen
+│   ├── cache/                        # Zwischengespeicherte Daten (LLM, API)
+│   ├── config/
+│   │   └── settings.py               # Default-Konfigurationen
+│   ├── core/
+│   │   ├── api/
+│   │   ├── process/
+│   │   └── visualization/
+│   ├── services/
+│   │   ├── wikipedia/                # Wikipedia-Integration
+│   │   ├── wikidata/                 # Wikidata-Integration mit Cache
+│   │   ├── dbpedia/                  # DBpedia (SPARQL & Lookup)
+│   │   ├── translation_service.py    # Übersetzungsdienst (optional)
+│   │   └── entity_manager.py         # Orchestriert Service-Calls
+│   ├── prompts/                      # Prompt-Vorlagen
+│   └── utils/                        # Hilfsfunktionen (Caching, Logging …)
+├── examples/                         # Ausführbare Beispielskripte
+│   ├── generate_location_geo.py
+│   ├── generate_compendium_qa_quantenmechanik.py
+│   └── minimal_generate.py
+├── requirements.txt                  # Produktionsabhängigkeiten
+└── README.md
+```
 ├── lib/                              # Externe Bibliotheken
 ├── entityextractor/                  # Hauptpaket
 │   ├── __init__.py
@@ -365,67 +454,72 @@ result = create_knowledge_compendium(topic, config)
 
 ## Architektur-Übersicht
 
-Die Entity Extractor Bibliothek basiert auf einer geschichteten Architektur:
+Die Entity-Extractor-Bibliothek folgt einer klaren Layer-Architektur:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      Öffentliche API                    │
-│ entityextractor.api (extract_and_link_entities, etc.)  │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  ▼
+│                  Öffentliche API (sync/async)           │
+│            entityextractor.api.process_entities         │
+└──────────────┬──────────────────────────────────────────┘
+               │
+               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                      API-Schicht                        │
-│     core/api/extract.py, api/generate.py, etc.         │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  ▼
+│                API-/Orchestrator-Layer                 │
+│            core/api/*  ·  core/process/orchestrator.py │
+└──────────────┬──────────────────────────────────────────┘
+               │
+               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                 Prozess-Schicht                         │
-│   core/process/orchestrator.py, deduplication.py, etc. │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  ▼
+│            Kontext- & Prozess-Layer (Business-Logic)   │
+│   core/context.py · core/process/* · models/ · schemas/│
+└──────────────┬──────────────────────────────────────────┘
+               │
+               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                 Basis-Implementierung                   │
-│     core/extractor.py, core/generator.py, etc.         │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  ▼
+│                 Service-Layer (I/O)                    │
+│ services/wikipedia · wikidata · dbpedia · translation  │
+└──────────────┬──────────────────────────────────────────┘
+               │
+               ▼
 ┌─────────────────────────────────────────────────────────┐
-│                 Externe Dienste                         │
-│     OpenAI API, Wikipedia, Wikidata, DBpedia           │
+│           Utilities & Infrastruktur (querschnitt)      │
+│              utils/* · cache/* · prompts/*             │
+└──────────────┬──────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────┐
+│                  Externe APIs & Datenquellen           │
+│      OpenAI · Wikipedia · Wikidata · DBpedia           │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ### Erklärung der Architektur-Schichten
 
-1. **Öffentliche API** (entityextractor.api)
+1. **Öffentliche API** (`entityextractor.api`)
    - Stellt einfache Funktionen für Endbenutzer bereit
    - Fokus auf intuitive Benutzerfreundlichkeit und Flexibilität
    - Unterstützt sowohl dictionary-basierte als auch kontext-basierte Architekturen
 
-2. **API-Schicht** (core/api/*)
+2. **API-/Orchestrator-Schicht** (`core/api/*`, `core/process/orchestrator.py`)
    - Integriert Basisfunktionalität mit zusätzlichen Prozessen
    - Bietet die Hauptimplementierungen für alle öffentlichen Funktionen
    - Exportiert sowohl dictionary-basierte als auch kontextbasierte API-Funktionen
 
-3. **Kontext-Schicht** (core/context.py)
+3. **Kontext- & Prozess-Layer** (`core/context.py`, `core/process/*`, `models/`, `schemas/`)
    - Zentrale `EntityProcessingContext`-Klasse zur strukturierten Datenübergabe
-   - Validierung und Schema-Prüfung für Service-Daten
-   - Management von Beziehungen und Metadaten
+   - Validierung, Geschäftslogik und Workflow-Management
+   - Verwaltung von Beziehungen, Statistiken und Metadaten
 
-4. **Prozess-Schicht** (core/process/*)
-   - Verarbeitet und optimiert die Ergebnisse (Deduplizierung, Formatierung, etc.)
-   - Steuert den Workflow durch Orchestrator-Komponenten
+4. **Service-Layer (I/O)** (`services/wikipedia`, `services/wikidata`, `services/dbpedia`, `services/translation`)
+   - Asynchrone Kommunikation mit externen Wissensquellen und APIs
+   - Kapselt Caching, Timeout-Handling und Fallback-Strategien
 
-4. **Basis-Implementierung** (core/*.py)
-   - Grundlegende Funktionalität für Extraktion, Generierung, etc.
-   - Fokus auf einzelne Funktionen ohne zusätzliche Verkettung
+5. **Utilities & Infrastruktur** (`utils/*`, `cache/*`, `prompts/*`)
+   - Querschnittsfunktionen wie Logging, Token-Handling, Prompt-Vorlagen und persistentes Caching
+   - Wird von allen oberen Schichten genutzt und enthält keine Geschäftslogik
 
-5. **Externe Dienste**
-   - Integration mit OpenAI API für LLM-Anfragen
-   - Anbindung an Wissensquellen (Wikipedia, Wikidata, DBpedia)
+6. **Externe APIs & Datenquellen** (OpenAI, Wikipedia, Wikidata, DBpedia …)
+   - Systeme außerhalb des Projekts, die über das Service-Layer angebunden werden
 
 ## Funktionsweise
 
@@ -447,9 +541,33 @@ Die Entity Extractor Bibliothek implementiert eine mehrschichtige Verarbeitungsp
 
 ## Konfiguration
 
-Alle Einstellungen liegen in `entityextractor/config/settings.py` unter `DEFAULT_CONFIG`. Wichtige Optionen:
+Alle Einstellungen liegen in `entityextractor/config/settings.py` unter `DEFAULT_CONFIG`. Die folgende Tabelle zeigt die wichtigsten Parameter (vollständige Liste siehe Datei).
 
-| Parameter                               | Typ                | Standardwert                                 | Beschreibung                                                                                          |
+| Kategorie | Parameter | Standard | Beschreibung |
+|-----------|-----------|----------|--------------|
+| **LLM** | `MODEL` | `"gpt-4.1-mini"` | OpenAI-Modell für Prompts |
+| | `TEMPERATURE` | `0.2` | Sampling-Temperatur |
+| | `MAX_TOKENS` | `16000` | Max. Token pro Anfrage |
+| **Sprache & Modus** | `LANGUAGE` | `"en"` | Verarbeitungssprache (`"de"`/`"en"`) |
+| | `MODE` | `"extract"` | `extract` oder `generate` |
+| **Extraktion & Generierung** | `MAX_ENTITIES` | `10` | Begrenzung extrahierter oder generierter Entitäten |
+| | `ENABLE_ENTITY_INFERENCE` | `False` | Implizite Entitäten erkennen |
+| **Beziehungen** | `RELATION_EXTRACTION` | `False` | Explizite Triple-Extraktion |
+| | `ENABLE_RELATIONS_INFERENCE` | `False` | Implizite Relationen erkennen |
+| | `MAX_RELATIONS` | `15` | Begrenzung extrahierter Relationen |
+| **Wissensquellen** | `USE_WIKIPEDIA` | `True` | Wikipedia-Verknüpfung (immer aktiv) |
+| | `USE_WIKIDATA` | `False` | Wikidata-Verknüpfung |
+| | `USE_DBPEDIA` | `False` | DBpedia-Verknüpfung |
+| | `DBPEDIA_LOOKUP_API` | `True` | Lookup-API-Fallback aktivieren |
+| **Kompendium & QA** | `ENABLE_COMPENDIUM` | `False` | Kompendium generieren |
+| | `ENABLE_QA_PAIRS` | `False` | Frage-Antwort-Paare erstellen |
+| **Visualisierung** | `ENABLE_GRAPH_VISUALIZATION` | `False` | Knowledge-Graph PNG/HTML erzeugen |
+| **Caching** | `CACHE_ENABLED` | `True` | Globales Caching aktivieren |
+| | `CACHE_DIR` | *Projektordner*/cache | Speicherort Cache |
+| **Debug & Logging** | `LOG_LEVEL` | `"INFO"` | Globales Log-Level |
+| | `DEBUG_MODE` | `False` | Zusätzliche Debug-Ausgaben |
+
+*(Weitere Parameter wie Ratelimiter, Timeouts, Training-Data-Export etc. siehe `settings.py`.)                               | Typ                | Standardwert                                 | Beschreibung                                                                                          |
 |-----------------------------------------|--------------------|----------------------------------------------|-------------------------------------------------------------------------------------------------------|
 | `LANGUAGE`                              | string             | `"de"`                                       | Sprache (de oder en)                                                                                  |
 | `MODEL`                                 | string             | `"gpt-4o-mini"`                            | OpenAI API Modell                                                                                     |
