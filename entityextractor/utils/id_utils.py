@@ -2,16 +2,16 @@ import uuid
 
 def generate_entity_id():
     """
-    Erzeugt eine eindeutige UUID4 für eine Entität.
+    Generates a unique UUID4 for an entity.
     Returns:
-        str: UUID4 als String
+        str: UUID4 as string
     """
     return str(uuid.uuid4())
 
 def generate_relationship_id():
     """
-    Erzeugt eine eindeutige UUID4 für eine Beziehung.
+    Generates a unique UUID4 for a relationship.
     Returns:
-        str: UUID4 als String
+        str: UUID4 as string
     """
     return str(uuid.uuid4())

@@ -12,7 +12,7 @@ Do NOT include any of the provided entities.
 Generate exactly {max_entities} new entities.
 
 Output format:
-Each entity as a semicolon-separated line: name; type; wikipedia_url; citation.
+Each entity as a semicolon-separated line: name_de; name_en; type; wikipedia_url_de; wikipedia_url_en; citation.
 One entity per line. No JSON or additional formatting.
 
 Guidelines:
@@ -35,7 +35,7 @@ Existing entities:
 Supplement the list by adding exactly {max_entities} new implicit entities that logically complete the network.
 
 Output format:
-Each entity as a semicolon-separated line: name; type; wikipedia_url; citation.
+Each entity as a semicolon-separated line: name_de; name_en; type; wikipedia_url_de; wikipedia_url_en; citation.
 One entity per line. No JSON or additional formatting.
 
 Guidelines:
@@ -55,7 +55,7 @@ Wiederhole keine der bereits vorhandenen Entitäten.
 Generiere genau {max_entities} neue Entitäten.
 
 Ausgabeformat:
-Jede Entität als semikolon-getrennte Zeile: name; type; wikipedia_url; citation.
+Jede Entität als semikolon-getrennte Zeile: name_de; name_en; type; wikipedia_url_de; wikipedia_url_en; citation.
 Eine Entität pro Zeile. Keine JSON oder zusätzliche Formatierung.
 
 Richtlinien:
@@ -78,7 +78,7 @@ Vorhandene Entitäten:
 Ergänze genau {max_entities} neue implizite Entitäten, die das Netzwerk logisch vervollständigen.
 
 Ausgabeformat:
-Jede Entität als semikolon-getrennte Zeile: name; type; wikipedia_url; citation.
+Jede Entität als semikolon-getrennte Zeile: name_de; name_en; type; wikipedia_url_de; wikipedia_url_en; citation.
 Eine Entität pro Zeile. Keine JSON oder zusätzliche Formatierung.
 
 Richtlinien:

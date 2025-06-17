@@ -1,7 +1,7 @@
 import os
 import json
 import hashlib
-import logging
+from loguru import logger
 
 
 def get_cache_path(cache_dir, namespace, key, suffix=".json"):
@@ -9,7 +9,7 @@ def get_cache_path(cache_dir, namespace, key, suffix=".json"):
     Compute the cache path for a given key under a namespace.
 
     Args:
-        cache_dir: Base cache directory
+        cache_dir: Base cache directory (should be project root /cache)
         namespace: Sub-directory under cache_dir
         key: Cache key (e.g., URL or resource URI)
         suffix: File suffix, e.g. ".json" or "_summary.json"
@@ -32,10 +32,10 @@ def load_cache(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            logging.debug(f"Loaded cache from {cache_path}")
+            logger.debug(f"Loaded cache from {cache_path}")
             return data
         except Exception as e:
-            logging.warning(f"Failed to load cache {cache_path}: {e}")
+            logger.warning(f"Failed to load cache {cache_path}: {e}")
     return None
 
 
@@ -46,6 +46,6 @@ def save_cache(cache_path, data):
     try:
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(data, f)
-        logging.debug(f"Saved cache to {cache_path}")
+        logger.debug(f"Saved cache to {cache_path}")
     except Exception as e:
-        logging.warning(f"Failed to save cache {cache_path}: {e}")
+        logger.warning(f"Failed to save cache {cache_path}: {e}")

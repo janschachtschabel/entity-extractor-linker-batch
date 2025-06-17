@@ -24,22 +24,29 @@ def build_graph(entities, relationships, config=None):
     if config is None:
         config = {}
 
+    print(f"DEBUG: Building graph from {len(entities)} entities and {len(relationships)} relationships (UUID mode)")
     logging.info(f"Building graph from {len(entities)} entities and {len(relationships)} relationships (UUID mode)")
 
     G = nx.DiGraph()
+    entity_count = 0
+    skipped_entities = 0
 
     # Mapping von Entity-UUID zu Metadaten
     uuid_to_entity = {}
     for entity in entities:
         entity_id = entity.get("id")
         if not entity_id:
+            print(f"DEBUG: Skipping entity without ID: {entity.get('entity', 'unknown')}")
+            skipped_entities += 1
             continue
+            
         name = entity.get("entity", "")
         details = entity.get("details", {})
         entity_type = details.get("typ", "")
         inferred = details.get("inferred", "")
         wikipedia_url = entity.get("sources", {}).get("wikipedia", {}).get("url", "")
         wikidata_id = entity.get("sources", {}).get("wikidata", {}).get("id", "")
+        dbpedia_uri = entity.get("sources", {}).get("dbpedia", {}).get("uri", "")
         color = get_color_for_entity_type(entity_type.lower())
         uuid_to_entity[entity_id] = {
             "name": name,
@@ -47,6 +54,7 @@ def build_graph(entities, relationships, config=None):
             "inferred": inferred,
             "wikipedia_url": wikipedia_url,
             "wikidata_id": wikidata_id,
+            "dbpedia_uri": dbpedia_uri,
             "color": color
         }
         # Knoten mit UUID als Schlüssel
@@ -57,10 +65,15 @@ def build_graph(entities, relationships, config=None):
             inferred=inferred,
             wikipedia_url=wikipedia_url,
             wikidata_id=wikidata_id,
+            dbpedia_uri=dbpedia_uri,
             color=color
         )
+        entity_count += 1
+
+    print(f"DEBUG: Added {entity_count} entities to graph, skipped {skipped_entities} entities without IDs")
 
     # Füge auch Entitäten aus Beziehungen hinzu, falls sie noch nicht existieren
+    rel_entity_count = 0
     for rel in relationships:
         for role in ["subject_id", "object_id"]:
             eid = rel.get(role)
@@ -76,14 +89,25 @@ def build_graph(entities, relationships, config=None):
                     inferred="explicit",
                     color=color
                 )
+                rel_entity_count += 1
+
+    print(f"DEBUG: Added {rel_entity_count} additional entities from relationships")
 
     # Füge Beziehungen als Kanten hinzu (UUID-basiert)
+    edge_count = 0
+    skipped_edges = 0
     for rel in relationships:
-        subject_id = rel.get("subject_id")
-        object_id = rel.get("object_id")
+        # Unterstütze sowohl subject_id/object_id als auch subject/object Formate
+        subject_id = rel.get("subject_id") or rel.get("subject")
+        object_id = rel.get("object_id") or rel.get("object")
         predicate = rel.get("predicate", "")
         inferred = rel.get("inferred", "")
+        
+        print(f"DEBUG: Processing relationship: {subject_id} --[{predicate}]--> {object_id}")
+        
         if not subject_id or not object_id or not predicate:
+            print(f"DEBUG: Skipping invalid relationship: missing subject_id, object_id, or predicate")
+            skipped_edges += 1
             continue
         style = "solid" if inferred == "explicit" else "dashed"
         G.add_edge(
@@ -96,8 +120,15 @@ def build_graph(entities, relationships, config=None):
             subject_type=rel.get("subject_type", ""),
             object_type=rel.get("object_type", "")
         )
+        edge_count += 1
 
+    print(f"DEBUG: Added {edge_count} edges to graph, skipped {skipped_edges} invalid relationships")
     logging.info(f"Graph built with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges (UUID mode)")
+    
+    # If we have entities but no edges, we'll create a simple layout for isolated nodes
+    if G.number_of_nodes() > 0 and G.number_of_edges() == 0:
+        print("DEBUG: Graph has nodes but no edges, will create a visualization with isolated nodes")
+    
     return G
 
 

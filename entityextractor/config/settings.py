@@ -27,14 +27,16 @@ DEFAULT_CONFIG = {
 
     # === ENTITY EXTRACTION SETTINGS ===
     "MODE": "extract",               # Modus: extract oder generate
-    "MAX_ENTITIES": 15,              # Maximale Anzahl extrahierter Entitäten
+    "MAX_ENTITIES": 10,              # Maximale Anzahl extrahierter Entitäten
     "ALLOWED_ENTITY_TYPES": "auto",  # Automatische Filterung erlaubter Entitätstypen
     "ENABLE_ENTITY_INFERENCE": False, # Implizite Entitätserkennung aktivieren
 
     # === RELATIONSHIP EXTRACTION AND INFERENCE ===
-    "RELATION_EXTRACTION": True,         # Relationsextraktion aktivieren
+    "ENABLE_ENTITY_NORMALIZATION_PROMPT": False,   # LLM-Mapping von Varianten auf kanonische Entitäten
+    "RELATION_EXTRACTION": False,         # Relationsextraktion aktivieren
     "ENABLE_RELATIONS_INFERENCE": False,  # Implizite Relationen aktivieren
     "MAX_RELATIONS": 15,                  # Maximale Anzahl Beziehungen pro Prompt
+    "STATISTICS_DEDUPLICATE_RELATIONSHIPS": False,  # Bei Statistiken Beziehungen deduplizieren
 
     # === CORE DATA SOURCE SETTINGS ===
     "USE_WIKIPEDIA": True,          # Wikipedia-Verknüpfung aktivieren (immer True)
@@ -54,16 +56,18 @@ DEFAULT_CONFIG = {
     "COMPENDIUM_LENGTH": 8000,            # Anzahl der Zeichen für das Kompendium (ca. 4 A4-Seiten)
     "COMPENDIUM_EDUCATIONAL_MODE": False,  # Bildungsmodus für Kompendium aktivieren
 
+    # === QA PAIR GENERATION SETTINGS ===
+    "ENABLE_QA_PAIRS": False,      # QA-Pairs generell aktivieren/deaktivieren
+    "QA_PAIR_COUNT": 10,          # Anzahl der Frage–Antwort-Paare
+    "QA_PAIR_LENGTH": 250,        # Maximale Länge einer Antwort in Zeichen
+
     # === KNOWLEDGE GRAPH VISUALIZATION SETTINGS ===
-    "ENABLE_GRAPH_VISUALIZATION": False,  # Statische PNG- und interaktive HTML-Ansicht aktivieren (erfordert RELATION_EXTRACTION=True)
-    "GRAPH_STYLE": "modern",              # Visueller Stil: "modern" (Pastellfarben), "classic" (Kräftige Farben), "minimal" (Grautöne)
-    "GRAPH_NODE_STYLE": "label_above",    # Knotendarstellung: "label_above" (kleine Kreise, Label darüber), "label_below" (kleine Kreise, Label darunter), "label_inside" (große Kreise mit Label)
+    "ENABLE_GRAPH_VISUALIZATION": False,   # Statische PNG- und interaktive HTML-Ansicht aktivieren (erfordert RELATION_EXTRACTION=True)
+    "GRAPH_STYLE": "pastel",              # Visueller Stil: "pastel" (sehr helle Pastellfarben), "modern" (Pastellfarben), "classic" (Kräftige Farben), "minimal" (Grautöne)
+    "GRAPH_NODE_STYLE": "label_below",    # Knotendarstellung: "label_above" (kleine Kreise, Label darüber), "label_below" (kleine Kreise, Label darunter), "label_inside" (große Kreise mit Label)
     "GRAPH_EDGE_LENGTH": "standard",      # Kantenlänge: "standard" (normale Distanz), "compact" (50% kürzer), "extended" (50% länger)
+    "OUTPUT_DIR": "./output",             # Allgemeines Ausgabeverzeichnis
     "GRAPH_OUTPUT_DIR": "./output",       # Ausgabeverzeichnis für Visualisierungen
-    
-    # === KNOWLEDGE GRAPH COMPLETION (KGC) ===
-    "ENABLE_KGC": False,                  # Knowledge-Graph-Completion aktivieren (Vervollständigung mit impliziten Relationen)
-    "KGC_ROUNDS": 3,                      # Anzahl der KGC-Runden
 
     # === TRAINING DATA COLLECTION SETTINGS ===
     "COLLECT_TRAINING_DATA": False,  # Trainingsdaten für Fine-Tuning sammeln
@@ -72,6 +76,8 @@ DEFAULT_CONFIG = {
 
     # === RATE LIMITER AND TIMEOUT SETTINGS ===
     "TIMEOUT_THIRD_PARTY": 15,       # Timeout für externe Dienste (Wikipedia, Wikidata, DBpedia)
+    "WIKIPEDIA_MAX_TITLES_PER_REQUEST": 50,  # Maximale Anzahl von Titeln pro Wikipedia-API-Anfrage
+    "WIKIPEDIA_MIN_EXTRACT_LEN": 30,   # Minimale Länge des Extracts, bevor Fallbacks ausgelöst werden
     "RATE_LIMIT_MAX_CALLS": 3,       # Maximale Anzahl Aufrufe pro Zeitraum
     "RATE_LIMIT_PERIOD": 1,          # Zeitraum in Sekunden
     "RATE_LIMIT_BACKOFF_BASE": 1,    # Basiswert für exponentielles Backoff
@@ -81,13 +87,16 @@ DEFAULT_CONFIG = {
 
     # === CACHING SETTINGS ===
     "CACHE_ENABLED": True,   # Caching global aktivieren oder deaktivieren
-    "CACHE_DIR": os.path.join(os.path.dirname(__file__), "../cache"),    # Verzeichnis für Cache-Dateien innerhalb des entityextractor-Pakets
+    # Use cache directory inside the main entityextractor project folder (next to core and prompts)
+    "CACHE_DIR": os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'cache')),  # entityextractor/cache/
     "CACHE_WIKIPEDIA_ENABLED": True,            # (Optional) Caching für Wikipedia-API-Anfragen aktivieren
     "CACHE_WIKIDATA_ENABLED": True,             # (Optional) Caching für Wikidata-API aktivieren
     "CACHE_DBPEDIA_ENABLED": True,              # Caching für DBpedia-SPARQL-Abfragen aktivieren
 
     # === LOGGING AND DEBUG SETTINGS ===
-    "SHOW_STATUS": True,            # Statusmeldungen anzeigen
+    "LOG_LEVEL": "INFO",          # Globales Log-Level (DEBUG, INFO, WARNING, ERROR). DEBUG zeigt detaillierte Logs.
+    "DEBUG_MODE": False,           # Schaltet zusätzliche Debug-Ausgaben an (überschreibt LOG_LEVEL auf DEBUG, wenn True)
+    "LOG_STATISTICS_SUMMARY": False,      # Konsolen-Zusammenfassung der Statistiken ausgeben
     "SUPPRESS_TLS_WARNINGS": True   # TLS-Warnungen unterdrücken
 }
 

@@ -32,34 +32,67 @@ def convert_to_legacy_format(result):
         }
         
         # Add Wikipedia source if available
-        if "wikipedia_url" in entity:
-            legacy_entity["sources"]["wikipedia"] = {
-                "url": entity.get("wikipedia_url", "")
-            }
-            if "wikipedia_extract" in entity:
-                legacy_entity["sources"]["wikipedia"]["extract"] = entity.get("wikipedia_extract", "")
+        if "wikipedia_data" in entity:
+            wikipedia_data = entity.get("wikipedia_data", {})
+            legacy_entity["sources"]["wikipedia"] = {}
+            
+            # Copy the most important fields
+            if "url" in wikipedia_data:
+                legacy_entity["sources"]["wikipedia"]["url"] = wikipedia_data["url"]
+            if "extract" in wikipedia_data:
+                legacy_entity["sources"]["wikipedia"]["extract"] = wikipedia_data["extract"]
+            
+            # Also set the old fields for backward compatibility
+            if "url" in wikipedia_data:
+                entity["wikipedia_url"] = wikipedia_data["url"]
+            if "extract" in wikipedia_data:
+                entity["wikipedia_extract"] = wikipedia_data["extract"]
         
         # Add Wikidata source if available
-        if "wikidata_id" in entity:
-            legacy_entity["sources"]["wikidata"] = {
-                "id": entity.get("wikidata_id", "")
-            }
-            if "wikidata_description" in entity:
-                legacy_entity["sources"]["wikidata"]["description"] = entity.get("wikidata_description", "")
-            if "wikidata_types" in entity:
-                legacy_entity["sources"]["wikidata"]["types"] = entity.get("wikidata_types", [])
+        if "wikidata_data" in entity:
+            wikidata_data = entity.get("wikidata_data", {})
+            legacy_entity["sources"]["wikidata"] = {}
+            
+            # Copy the most important fields
+            if "id" in wikidata_data:
+                legacy_entity["sources"]["wikidata"]["id"] = wikidata_data["id"]
+            if "description" in wikidata_data:
+                legacy_entity["sources"]["wikidata"]["description"] = wikidata_data["description"]
+            if "types" in wikidata_data:
+                legacy_entity["sources"]["wikidata"]["types"] = wikidata_data["types"]
+            
+            # Also set the old fields for backward compatibility
+            if "id" in wikidata_data:
+                entity["wikidata_id"] = wikidata_data["id"]
+            if "description" in wikidata_data:
+                entity["wikidata_description"] = wikidata_data["description"]
+            if "types" in wikidata_data:
+                entity["wikidata_types"] = wikidata_data["types"]
         
         # Add DBpedia source if available
-        if "dbpedia_uri" in entity:
-            legacy_entity["sources"]["dbpedia"] = {
-                "resource_uri": entity.get("dbpedia_uri", "")
-            }
-            if "dbpedia_language" in entity:
-                legacy_entity["sources"]["dbpedia"]["language"] = entity.get("dbpedia_language", "")
-            if "dbpedia_abstract" in entity:
-                legacy_entity["sources"]["dbpedia"]["abstract"] = entity.get("dbpedia_abstract", "")
-            if "dbpedia_types" in entity:
-                legacy_entity["sources"]["dbpedia"]["types"] = entity.get("dbpedia_types", [])
+        if "dbpedia_data" in entity:
+            dbpedia_data = entity.get("dbpedia_data", {})
+            legacy_entity["sources"]["dbpedia"] = {}
+            
+            # Copy the most important fields
+            if "resource_uri" in dbpedia_data:
+                legacy_entity["sources"]["dbpedia"]["resource_uri"] = dbpedia_data["resource_uri"]
+            if "language" in dbpedia_data:
+                legacy_entity["sources"]["dbpedia"]["language"] = dbpedia_data["language"]
+            if "abstract" in dbpedia_data:
+                legacy_entity["sources"]["dbpedia"]["abstract"] = dbpedia_data["abstract"]
+            if "types" in dbpedia_data:
+                legacy_entity["sources"]["dbpedia"]["types"] = dbpedia_data["types"]
+            
+            # Also set the old fields for backward compatibility
+            if "resource_uri" in dbpedia_data:
+                entity["dbpedia_uri"] = dbpedia_data["resource_uri"]
+            if "language" in dbpedia_data:
+                entity["dbpedia_language"] = dbpedia_data["language"]
+            if "abstract" in dbpedia_data:
+                entity["dbpedia_abstract"] = dbpedia_data["abstract"]
+            if "types" in dbpedia_data:
+                entity["dbpedia_types"] = dbpedia_data["types"]
         
         legacy_entities.append(legacy_entity)
     

@@ -1,16 +1,17 @@
 """
 relationships.py
 
-API-Modul für die Beziehungsextraktion und -inferenz zwischen Entitäten.
+API module for relationship extraction and inference between entities.
 
-Dies ist die offizielle Implementierung für die Beziehungsinferenz im Entity Extractor.
-Sie wird von der Orchestrator-Komponente und anderen Kernmodulen verwendet, um
-Beziehungen zwischen extrahierten Entitäten zu identifizieren und zu inferieren.
+This is the official implementation for relationship inference in the Entity Extractor.
+It is used by the Orchestrator component and other core modules to
+identify and infer relationships between extracted entities.
 
-Zentrales Feature ist die Unterscheidung zwischen expliziten (direkt im Text genannten)
-und impliziten (aus Wissen abgeleiteten) Beziehungen zwischen Entitäten.
+A central feature is the distinction between explicit (directly mentioned in the text)
+and implicit (derived from knowledge) relationships between entities.
 """
 
+from loguru import logger
 import logging
 import re
 import time
@@ -24,34 +25,38 @@ from entityextractor.config.settings import get_config
 
 def infer_entity_relationships(entities, text=None, config=None):
     """
-    Inferiert Beziehungen zwischen extrahierten Entitäten.
+    Infers relationships between extracted entities.
     
     Args:
-        entities: Liste von Entitäten, zwischen denen Beziehungen inferiert werden sollen
-        text: Optional - der Ursprungstext für explizite Beziehungen
-        config: Konfigurationswörterbuch
+        entities: List of entities between which relationships should be inferred
+        text: Optional - the source text for explicit relationships
+        config: Configuration dictionary
         
     Returns:
-        Liste von Beziehungen als Tripel (subject, predicate, object)
+        List of relationships as triplets (subject, predicate, object)
     """
     if not entities:
         return []
     
     config = get_config(config)
     
-    # Beziehungen nur inferieren, wenn aktiviert
+    # Only infer relationships if enabled
     if not config.get("RELATION_EXTRACTION", True):
-        logging.info("Entity Relationship Inference deaktiviert.")
+        logger.info("Entity Relationship Inference disabled.")
         return []
     
-    # Nur Entitäten mit bestimmten Typen verwenden, falls konfiguriert
+    # Only use entities with certain types, if configured
     allowed_types = config.get("ALLOWED_ENTITY_TYPES", "auto")
     
-    # Berücksichtige verschiedene mögliche Strukturen der Entitäten
+    # Consider different possible structures of the entities
     if allowed_types != "auto" and isinstance(allowed_types, list):
         filtered_entities = []
         for e in entities:
-            # Prüfe verschiedene mögliche Strukturen der Entität
+            # Check if it's a dictionary object
+            if not isinstance(e, dict):
+                continue
+                
+            # Check different possible structures of the entity
             if "details" in e and "typ" in e.get("details", {}):
                 entity_type = e.get("details", {}).get("typ", "")
             else:
@@ -62,105 +67,129 @@ def infer_entity_relationships(entities, text=None, config=None):
     else:
         filtered_entities = entities
     
-    # Erstelle Mapping von Entitätsnamen zu Typen für spätere Vervollständigung der Tripel
+    # Create mapping from entity names to types for later completion of triplets
     entity_type_map = {}
     entity_infer_map = {}
     
     for e in filtered_entities:
-        name = e.get("name", "")
-        if not name:
+        # Support for old and new data structure
+        if isinstance(e, dict):
+            # New data structure uses 'entity' instead of 'name'
+            name = e.get("entity", e.get("name", ""))
+            
+            # Check different possible structures for the type
+            if "details" in e and "typ" in e.get("details", {}):
+                entity_type = e.get("details", {}).get("typ", "")
+            else:
+                entity_type = e.get("type", "")
+                
+            # Check different possible structures for inferred
+            if "details" in e and "inferred" in e.get("details", {}):
+                inferred = e.get("details", {}).get("inferred", "explicit")
+            else:
+                inferred = e.get("inferred", "explicit")
+        elif isinstance(e, str):
+            # Fallback when the entity is passed directly as a string
+            name = e
+            entity_type = ""
+            inferred = "explicit"
+        else:
+            # Skip unknown format
+            logger.warning(f"Unknown entity format: {type(e)}")
             continue
             
-        # Prüfe verschiedene mögliche Strukturen für den Typ
-        if "details" in e and "typ" in e.get("details", {}):
-            entity_type = e.get("details", {}).get("typ", "")
-        else:
-            entity_type = e.get("type", "")
-            
-        # Prüfe verschiedene mögliche Strukturen für inferred
-        if "details" in e and "inferred" in e.get("details", {}):
-            inferred = e.get("details", {}).get("inferred", "explicit")
-        else:
-            inferred = e.get("inferred", "explicit")
+        if not name:
+            continue
             
         entity_type_map[name] = entity_type
         entity_infer_map[name] = inferred
     
-    logging.info(f"Extrahierte {len(filtered_entities)} Entitäten für Beziehungsextraktion")
-    logging.info(f"Erstellt Entitätstyp-Map mit {len(entity_type_map)} Einträgen")
-    logging.info(f"Erstellt Entität-Inferenz-Map mit {len(entity_infer_map)} Einträgen")
+    logger.info(f"Extracted {len(filtered_entities)} entities for relationship extraction")
+    logger.info(f"Created entity type map with {len(entity_type_map)} entries")
+    logger.info(f"Created entity inference map with {len(entity_infer_map)} entries")
     
-    # Erstelle eine Hilfsfunktion zur Normalisierung von Entitätsnamen für besseres Matching
+    # Create a helper function for normalizing entity names for better matching
     def normalize_entity_name(name):
-        """Normalisiert einen Entitätsnamen für robusteres Matching.
+        """Normalizes an entity name for more robust matching.
         
-        Entfernt Klammerausdrücke wie in "dualismus (theorie)" -> "dualismus"
-        und normalisiert Groß-/Kleinschreibung.
+        Removes bracket expressions like in "dualism (theory)" -> "dualism"
+        and normalizes case.
         """
         if not name:
             return ""
             
-        # Grundnormalisierung (Kleinschreibung und Leerzeichen entfernen)
+        # Basic normalization (lowercase and remove spaces)
         result = name.strip().lower()
+        # Entferne führende/abschließende eckige Klammern, falls vorhanden
+        if result.startswith("[") and result.endswith("]"):
+            result = result[1:-1].strip()
         
-        # Entferne Suffix-Klammern wie in "dualismus (theorie)" -> "dualismus"
+        # Remove suffix brackets like in "dualism (theory)" -> "dualism"
         if "(" in result and ")" in result:
-            # Finde die Position der ersten Klammer
+            # Find the position of the first bracket
             bracket_start = result.find("(")
-            # Extrahiere nur den Text vor der Klammer
+            # Extract only the text before the bracket
             result = result[:bracket_start].strip()
             
         return result
     
-    # Extrahiere explizite Beziehungen, wenn Text vorhanden
+    # Extract explicit relationships if text is available
     all_relationships = []
     explicit_rels = []
     implicit_rels = []
     
-    # Prüfe die Konfigurationsparameter für die Beziehungsextraktion
+    # Check configuration parameters for relationship extraction
     relation_extraction_enabled = (
         config.get("RELATION_EXTRACTION", False) or 
         config.get("ENABLE_RELATIONS_INFERENCE", False)
     )
     
-    # Logging für die Beziehungsextraktion-Konfiguration
-    logging.info(f"Beziehungsextraktion aktiv: {relation_extraction_enabled} (RELATION_EXTRACTION={config.get('RELATION_EXTRACTION', False)}, ENABLE_RELATIONS_INFERENCE={config.get('ENABLE_RELATIONS_INFERENCE', False)})")
+    # Logging for relationship extraction configuration
+    logger.info(f"Relationship extraction active: {relation_extraction_enabled} (RELATION_EXTRACTION={config.get('RELATION_EXTRACTION', False)}, ENABLE_RELATIONS_INFERENCE={config.get('ENABLE_RELATIONS_INFERENCE', False)})")
     
     if relation_extraction_enabled:
         if text:
-            logging.info("Starte Entity Relationship Inference mit Text...")
+            logger.info("Starting Entity Relationship Inference with text...")
             explicit_rels = extract_explicit_relationships(filtered_entities, text, entity_type_map, entity_infer_map, config)
             all_relationships.extend(explicit_rels)
-            logging.info(f"Extrahierte {len(explicit_rels)} explizite Beziehungen")
+            logger.info(f"Extracted {len(explicit_rels)} explicit relationships")
         else:
-            logging.info("Kein Text für explizite Beziehungen vorhanden, überspringe explizite Extraktion.")
+            logger.info("No text available for explicit relationships, skipping explicit extraction.")
     
-    # Extrahiere implizite Beziehungen, wenn aktiviert
+    # Extract implicit relationships if enabled
     if config.get("ENABLE_RELATIONS_INFERENCE", False):
-        logging.info("Starte implizite Beziehungsextraktion...")
+        logger.info("Starting implicit relationship extraction...")
         implicit_rels = extract_implicit_relationships(filtered_entities, entity_type_map, entity_infer_map, config)
         all_relationships.extend(implicit_rels)
-        logging.info(f"Extrahierte {len(implicit_rels)} implizite Beziehungen")
+        logger.info(f"Extracted {len(implicit_rels)} implicit relationships")
     else:
-        logging.info("Implizite Beziehungsextraktion deaktiviert.")
+        logger.info("Implicit relationship extraction disabled.")
         
-    # Dedupliziere alle Beziehungen mit dem LLM-basierten Verfahren
-    # Dynamischer Import um zirkuläre Importe zu vermeiden
-    deduplication_module = importlib.import_module("entityextractor.core.process.deduplication")
-    relationships = deduplication_module.deduplicate_relationships(all_relationships, filtered_entities, config)
+    # Optionally deduplicate relationships depending on configuration flag
+    relationships = all_relationships
+    if config.get("STATISTICS_DEDUPLICATE_RELATIONSHIPS", True):
+        # Dynamic import to avoid circular imports
+        deduplication_module = importlib.import_module("entityextractor.core.process.deduplication")
+        relationships = deduplication_module.deduplicate_relationships(all_relationships, filtered_entities, config)
+        logger.info(f"Relationship deduplication enabled: reduced from {len(all_relationships)} to {len(relationships)} records")
+    else:
+        logger.info("Relationship deduplication disabled by configuration – keeping all relationships")
     
-    # Hilfsfunktion zur Normalisierung von Entitätsnamen für besseres Matching
+    # Helper function for normalizing entity names for better matching
     def normalize_entity_name(name):
-        """Normalisiert einen Entitätsnamen für robusteres Matching.
+        """Normalizes an entity name for more robust matching.
         
-        Entfernt Klammerausdrücke wie in "dualismus (theorie)" -> "dualismus"
-        und normalisiert Groß-/Kleinschreibung.
+        Removes bracket expressions like in "dualism (theory)" -> "dualism"
+        and normalizes case.
         """
         if not name:
             return ""
             
         # Grundnormalisierung (Kleinschreibung und Leerzeichen entfernen)
         result = name.strip().lower()
+        # Entferne führende/abschließende eckige Klammern, falls vorhanden
+        if result.startswith("[") and result.endswith("]"):
+            result = result[1:-1].strip()
         
         # Entferne Suffix-Klammern wie in "dualismus (theorie)" -> "dualismus"
         if "(" in result and ")" in result:
@@ -171,11 +200,24 @@ def infer_entity_relationships(entities, text=None, config=None):
             
         return result
     
-    # Erstelle normalisierte Versionen der Entitätsnamen für robusteres Matching
-    logging.info("Erstelle normalisierte Entity-Maps für robusteres Matching...")
+    # Create normalized versions of entity names for more robust matching
+    logger.info("Creating normalized entity maps for more robust matching...")
     entity_names = set(entity_type_map.keys())
     entity_names_normalized = {normalize_entity_name(name): name for name in entity_names}
-    entity_id_map = {e.get("name", ""): e.get("id", "") for e in filtered_entities}
+    
+    # Create an ID map with support for old and new data structures
+    entity_id_map = {}
+    for e in filtered_entities:
+        if isinstance(e, dict):
+            # Neue Datenstruktur verwendet 'entity' statt 'name'
+            name = e.get("entity", e.get("name", ""))
+            entity_id = e.get("id", str(uuid.uuid4()))
+            if name:
+                entity_id_map[name] = entity_id
+        elif isinstance(e, str):
+            # Fallback, wenn die Entität direkt als String übergeben wird
+            entity_id_map[e] = str(uuid.uuid4())
+    
     entity_id_map_normalized = {normalize_entity_name(name): uid for name, uid in entity_id_map.items()}
     
     # Logging für Debugging
@@ -367,37 +409,55 @@ def infer_entity_relationships(entities, text=None, config=None):
         for i, rel in enumerate(valid_relationships[:3]):
             logging.info(f"Beispiel-Beziehung {i+1}: {rel.get('subject_label', '')} -- {rel.get('predicate', '')} --> {rel.get('object_label', '')}")
             
-        print(f"Gebe {len(valid_relationships)} validierte Beziehungen zurück")
+        print(f"Returning {len(valid_relationships)} validated relationships")
         return valid_relationships
     else:
-        logging.warning("Keine gültigen Beziehungen gefunden!")
+        logger.warning("No valid relationships found!")
         return []
 
 def extract_explicit_relationships(entities, text, entity_type_map, entity_infer_map, config):
     """
-    Extrahiert explizite Beziehungen zwischen Entitäten im Text.
-    Im "extract"-Modus werden explizite Beziehungen extrahiert.
-    Im "generate"-Modus werden implizite Beziehungen extrahiert (auch im ersten Prompt).
+    Extracts explicit relationships between entities in the text.
+    In "extract" mode, explicit relationships are extracted.
+    In "generate" mode, implicit relationships are extracted (also in the first prompt).
     
     Args:
-        entities: Liste von Entitäten
-        text: Der Text, in dem nach Beziehungen gesucht wird
-        entity_type_map: Mapping von Entitätsnamen zu Typen
-        entity_infer_map: Mapping von Entitätsnamen zu Inferenz-Status
-        config: Konfigurationswörterbuch
+        entities: List of entities
+        text: The text in which to search for relationships
+        entity_type_map: Mapping from entity names to types
+        entity_infer_map: Mapping from entity names to inference status
+        config: Configuration dictionary
         
     Returns:
-        Liste von expliziten oder impliziten Beziehungen, je nach Modus
+        List of explicit or implicit relationships, depending on the mode
     """
     model = config.get("MODEL", "gpt-4.1-mini")
     language = config.get("LANGUAGE", "de")
     max_relations = config.get("MAX_RELATIONS", 20)
-    temperature = 0.2  # Niedrige Temperatur für konsistente Antworten
+    temperature = 0.2  # Low temperature for consistent answers
     
-    logging.info(f"Rufe OpenAI API für explizite Beziehungen auf (Modell {model})...")
+    logger.info(f"Calling OpenAI API for explicit relationships (model {model})...")
     
-    # Erstelle den Prompt für explizite Beziehungen
-    entity_list = "\n".join([f"- {e.get('name')} ({e.get('type', 'Entity')})" for e in entities])
+    # Create the prompt for explicit relationships
+    entity_items = []
+    for e in entities:
+        if isinstance(e, dict):
+            # Support for old and new data structure and additional fallback keys
+            name = e.get("entity") or e.get("name") or e.get("entity_name")
+            
+            # Extract type from different possible structures
+            if "details" in e and "typ" in e.get("details", {}):
+                entity_type = e.get("details", {}).get("typ", "Entity")
+            else:
+                entity_type = e.get("type", "Entity")
+                
+            if name:
+                entity_items.append(f"- {name} ({entity_type})")
+        elif isinstance(e, str):
+            # Fallback, wenn die Entität direkt als String übergeben wird
+            entity_items.append(f"- {e} (Entity)")
+    
+    entity_list = "\n".join(entity_items)
     
     # Bestimme den Modus
     mode = config.get("MODE", "extract")
@@ -505,8 +565,8 @@ Please identify all EXPLICIT relationships between these entities that are DIREC
     
     if response:
         answer = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-        logging.info(f"Erhaltene Antwort (explizit): {answer[:100]}...")
-        logging.info(f"Erster Prompt abgeschlossen in {elapsed:.2f} Sekunden")
+        logger.info(f"Received response (explicit): {answer[:100]}...")
+        logger.info(f"First prompt completed in {elapsed:.2f} seconds")
         
         # Verarbeite die Antwort Zeile für Zeile
         for line in answer.strip().split("\n"):
@@ -520,11 +580,11 @@ Please identify all EXPLICIT relationships between these entities that are DIREC
                 # Normalisierung des Prädikats
                 predicate = predicate.lower().strip()
                 
-                # Bestimme den Inferenztyp basierend auf dem Modus
+                # Determine the inference type based on the mode
                 mode = config.get("MODE", "extract")
                 inferred_type = "implicit" if mode == "generate" else "explicit"
                 
-                # Bestimme den Inferenz-Status für Subjekt und Objekt basierend auf dem Modus
+                # Determine the inference status for subject and object based on the mode
                 subject_inferred = "implicit" if mode == "generate" else entity_infer_map.get(subject, "explicit")
                 object_inferred = "implicit" if mode == "generate" else entity_infer_map.get(object_, "explicit")
                 
@@ -542,41 +602,61 @@ Please identify all EXPLICIT relationships between these entities that are DIREC
                 
                 relationships.append(relationship)
     
-    logging.info(f"{len(relationships)} gültige explizite Beziehungen gefunden")
+    logger.info(f"{len(relationships)} valid explicit relationships found")
     return relationships
 
-def extract_implicit_relationships(entities, entity_type_map, entity_infer_map, config):
+def extract_implicit_relationships(entities, entity_type_map, entity_infer_map, config, existing_relationships=None):
     """
-    Inferiert implizite Beziehungen zwischen Entitäten basierend auf KG-Wissen.
+    Infers implicit relationships between entities based on KG knowledge.
     
     Args:
-        entities: Liste von Entitäten
-        entity_type_map: Mapping von Entitätsnamen zu Typen
-        entity_infer_map: Mapping von Entitätsnamen zu Inferenz-Status
-        config: Konfigurationswörterbuch
+        entities: List of entities
+        entity_type_map: Mapping from entity names to types
+        entity_infer_map: Mapping from entity names to inference status
+        config: Configuration dictionary
         
     Returns:
-        Liste von impliziten Beziehungen
+        List of implicit relationships
     """
     model = config.get("MODEL", "gpt-4.1-mini")
     language = config.get("LANGUAGE", "de")
     max_relations = config.get("MAX_RELATIONS", 20)
-    temperature = 0.3  # Leicht höhere Temperatur für mehr Variation bei impliziten Beziehungen
+    temperature = 0.3  # Slightly higher temperature for more variation in implicit relationships
+    max_new_relations = config.get("IMPLICIT_REL_LIMIT", 20)
     
-    logging.info(f"Rufe OpenAI API für implizite Beziehungen auf (Modell {model})...")
+    logger.info(f"Calling OpenAI API for implicit relationships (model {model})...")
     
-    # Erstelle den Prompt für implizite Beziehungen
-    entity_list = "\n".join([f"- {e.get('name')} ({e.get('type', 'Entity')})" for e in entities])
+    # Create the prompt for implicit relationships
+    # Fallback to 'entity_name' if 'name' key missing
+    # Build entity list with robust key fallback
+    # Build numbered, strict entity list with canonical token in brackets
+    canonical_entities = []
+    for idx, e in enumerate(entities, 1):
+        canonical = (e.get("entity") or e.get("name") or e.get("entity_name"))
+        if not canonical:
+            continue
+        ent_type = e.get("type", "Entity")
+        canonical_entities.append(f"{idx}) {canonical} [{canonical}] ({ent_type})")
+    entity_list = "\n".join(canonical_entities)
     
-    # Erstelle Entitätsinformationen für den Prompt
+    # Create entity information for the prompt
     entity_info = []
     for entity in entities:
-        name = entity.get("name", "")
-        description = entity.get("wikipedia_extract", "")[:150]  # Gekürzte Beschreibung
+        name = entity.get("entity") or entity.get("name") or entity.get("entity_name", "")
+        description = entity.get("wikipedia_extract", "")[:150]  # Shortened description
         if name and description:
             entity_info.append(f"- {name}: {description}...")
     
     entity_info_text = "\n".join(entity_info)
+
+    # Debug: Log the entities passed to implicit inference
+    logger.info(f"[implicit] Using {len(entities)} entities for inference. First 5: {[ (e.get('entity') or e.get('name') or e.get('entity_name')) for e in entities[:5] ]}")
+
+    # Prepare list of already known relationships to avoid duplicates
+    existing_rel_text = ""
+    if existing_relationships:
+        rel_lines = [f"{idx+1}. {r['subject']}; {r['predicate']}; {r['object']}" for idx, r in enumerate(existing_relationships)]
+        existing_rel_text = "\n".join(rel_lines)
     
     # Sprachspezifische Prompts
     if language.startswith("de"):
@@ -591,14 +671,8 @@ Wichtige Regeln:
 6. Verwende ausschließlich kleingeschriebene Prädikate in der dritten Person Singular (z.B. "enthält", "ist_teil_von")
 7. Verwende keine erklärenden Sätze oder Einleitungen"""
 
-        user_prompt = f"""Hier sind die extrahierten Entitäten mit kurzen Beschreibungen:
-
-{entity_info_text}
-
-Entitätsliste:
-{entity_list}
-
-Bitte identifiziere IMPLIZITE Beziehungen zwischen diesen Entitäten, basierend auf allgemeinem Wissen. Vermeide offensichtliche oder triviale Beziehungen. Gib die Beziehungen im Format "Subjekt; Prädikat; Objekt" an."""
+        user_prompt = f"""Hier sind die extrahierten Entitäten mit kurzen Beschreibungen:\n\n{entity_info_text}\n\nErlaubte Entitäten (verwende **exakt** die Zeichenfolge in eckigen Klammern als Subjekt/Objekt):\n{entity_list}\n\nBereits erkannte Beziehungen (bitte KEINE Umformulierungen oder logischen Dubletten dazu liefern):\n{existing_rel_text}\n\nAufgabe:\n- Finde maximal {max_new_relations} weitere, klar neue IMPLIZITE Beziehungen.\n- Verwende **ausschließlich** die Tokens in eckigen Klammern als Subjekt/Objekt.\n- Keine neuen Entitäten, keine Aliasnamen, keine rein sprachlichen Varianten.\n- Gib die Beziehungen exakt im Format \"[Subjekt]; Prädikat; [Objekt]\" (inklusive der eckigen Klammern um Subjekt und Objekt) ohne weitere Erklärungen.\n- Beispiel NICHT erlaubt: Einstein; beeinflusst; Relativitätstheorie
+- Beispiel ERLAUBT: [Albert Einstein]; beeinflusst; [Relativitätstheorie]"""
     else:
         system_prompt = """You are an assistant for creating knowledge graphs. Your task is to identify IMPLICIT relationships between entities, based on general knowledge and context.
 
@@ -609,16 +683,10 @@ Important rules:
 4. Provide the relationships in the format "Subject; Predicate; Object", one per line
 5. Use EXACTLY the names from the entity list for subject and object
 6. Use only lowercase predicates in the third person singular (e.g. "contains", "is_part_of")
-7. Do not use explanatory sentences or introductions"""
+7. Do not use explanatory sentences or introductions
+8. Avoid obvious or trivial relationships and duplicates"""
 
-        user_prompt = f"""Here are the extracted entities with short descriptions:
-
-{entity_info_text}
-
-Entity list:
-{entity_list}
-
-Please identify IMPLICIT relationships between these entities, based on general knowledge. Avoid obvious or trivial relationships. Provide the relationships in the format "Subject; Predicate; Object"."""
+        user_prompt = f"""Here are the extracted entities with short descriptions:\n\n{entity_info_text}\n\nEntity list:\n{entity_list}\n\nExisting relationships (do NOT provide paraphrases or logical duplicates):\n{existing_rel_text}\n\nTask:\n- Provide at most {max_new_relations} additional IMPLICIT relationships that are genuinely new in meaning.\n- No mere linguistic rephrasings.\n- Output ONLY NEW relationships in the exact format \"Subject; Predicate; Object\" with no explanations."""
     
     # Rufe die OpenAI API auf
     start_time = time.time()
@@ -638,8 +706,8 @@ Please identify IMPLICIT relationships between these entities, based on general 
     
     if response:
         answer = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-        logging.info(f"Erhaltene Antwort (implizit): {answer[:100]}...")
-        logging.info(f"Zweiter Prompt abgeschlossen in {elapsed:.2f} Sekunden")
+        logger.info(f"Received response (implicit): {answer[:100]}...")
+        logger.info(f"Second prompt completed in {elapsed:.2f} seconds")
         
         # Verarbeite die Antwort Zeile für Zeile
         for line in answer.strip().split("\n"):
@@ -667,5 +735,29 @@ Please identify IMPLICIT relationships between these entities, based on general 
                 
                 relationships.append(relationship)
     
-    logging.info(f"{len(relationships)} gültige implizite Beziehungen gefunden")
-    return relationships
+    # --------------------------------------------------------------
+    # Vorab-Filter: Entferne Dubletten (richtungslos + Prädikat)
+    # --------------------------------------------------------------
+    def _rel_key(rel):
+        return (frozenset([rel.get("subject"), rel.get("object")]), rel.get("predicate", "").lower().strip())
+
+    existing_keys = {_rel_key(r) for r in (existing_relationships or [])}
+    filtered = []
+    for rel in relationships:
+        key = _rel_key(rel)
+        if key in existing_keys:
+            logger.debug(f"[implicit] Überspringe Dublette aus bestehender Liste: {rel['subject']} - {rel['predicate']} - {rel['object']}")
+            continue
+        if key in {_rel_key(r) for r in filtered}:
+            logger.debug(f"[implicit] Überspringe interne Dublette: {rel['subject']} - {rel['predicate']} - {rel['object']}")
+            continue
+        filtered.append(rel)
+        existing_keys.add(key)
+
+    # Hard limit
+    if len(filtered) > max_new_relations:
+        logger.info(f"[implicit] Kürze Ergebnis von {len(filtered)} auf {max_new_relations} Beziehungen gemäß Limit")
+        filtered = filtered[:max_new_relations]
+
+    logger.info(f"{len(filtered)} valid implicit relationships after pre-filter")
+    return filtered

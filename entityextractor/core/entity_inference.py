@@ -117,12 +117,29 @@ def infer_entities(text, entities, user_config=None):
     implicit = []
     for ln in lines:
         parts = [p.strip() for p in ln.split(';')]
-        if len(parts) >= 4:
-            name, typ, url, citation = parts[:4]
-            # Generiere eine eindeutige UUID für jede implizite Entität
+        if len(parts) >= 6:
+            name_de, name_en, typ, url_de, url_en, citation = parts[:6]
+            primary_name = name_de or name_en
+            primary_url = url_en or url_de  # Prefer English URL
             entity_id = str(uuid.uuid4())
             implicit.append({
-                "id": entity_id,  # Wichtig: Füge eine UUID hinzu
+                "id": entity_id,
+                "name": primary_name,
+                "label_de": name_de,
+                "label_en": name_en,
+                "type": typ,
+                "wikipedia_url": primary_url,
+                "wikipedia_url_de": url_de,
+                "wikipedia_url_en": url_en,
+                "inferred": "implicit",
+                "citation": citation
+            })
+        elif len(parts) >= 4:
+            # Backward compatibility
+            name, typ, url, citation = parts[:4]
+            entity_id = str(uuid.uuid4())
+            implicit.append({
+                "id": entity_id,
                 "name": name,
                 "type": typ,
                 "wikipedia_url": url,

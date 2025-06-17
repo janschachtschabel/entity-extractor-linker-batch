@@ -13,11 +13,11 @@ setup(
     name="entityextractor",
     version="1.0.0",
     author="Jan Schachtschabel",
-    author_email="jan.schachtschabel@example.com",
+    author_email="schachtschabel@edu-sharing.net",
     description="A tool for extracting, generating and linking entities to knowledge bases with relationship inference",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/janschachtschabel/entity-extractor-linker",
+    url="https://github.com/janschachtschabel/entity-extractor-linker-batch",
     packages=find_packages(),
     include_package_data=True,
     package_data={
@@ -29,6 +29,7 @@ setup(
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.8",
+    license="Apache-2.0",
     install_requires=requirements,
     entry_points={
         "console_scripts": [

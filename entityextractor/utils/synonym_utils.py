@@ -2,24 +2,23 @@
 # -*- coding: utf-8 -*-
 
 """
-Synonym-Hilfsfunktionen für den Entity Extractor.
+Synonym utilities for the Entity Extractor.
 
-Dieses Modul stellt Funktionen zur Generierung von Synonymen und alternativen 
-Bezeichnungen für Entitäten zur Verfügung, mit Unterstützung für verschiedene
-Quellen (lokale Mappings, OpenAI API).
+This module provides functions for generating synonyms and alternative
+names for entities, with support for various sources (local mappings, OpenAI API).
 """
 
-import logging
 import hashlib
 import re
 import time
 import os
+from loguru import logger
 
 from entityextractor.utils.cache_utils import get_cache_path, load_cache, save_cache
 from entityextractor.utils.language_utils import get_language_map, clean_title
 from entityextractor.config.settings import get_config, DEFAULT_CONFIG
 
-# Statische Synonymmap für häufige Entitäten (Fallback ohne API-Aufruf)
+# Static synonym map for common entities (fallback without API call)
 _COMMON_SYNONYMS = {
     "Deutschland": ["Bundesrepublik Deutschland", "BRD", "German", "Germany"],
     "England": ["Great Britain", "United Kingdom", "UK", "Britain"],
@@ -43,23 +42,23 @@ _COMMON_SYNONYMS = {
 
 def generate_synonyms_with_openai(entity, language="German", config=None):
     """
-    Generiert Synonyme für eine Entität mit der OpenAI API.
+    Generates synonyms for an entity using the OpenAI API.
     
     Args:
-        entity: Die Entität für die Synonyme generiert werden sollen
-        language: Vollständiger Sprachname (z.B. "German", "English")
-        config: Konfigurationsobjekt mit API-Schlüssel und Modelleinstellungen
+        entity: The entity for which synonyms should be generated
+        language: Full language name (e.g., "German", "English")
+        config: Configuration object with API key and model settings
         
     Returns:
-        Liste von Synonymen oder leere Liste bei Fehler
+        List of synonyms or empty list on error
     """
-    # Statische Antworten zurückgeben, wenn verfügbar (für bessere Performance)
+    # Return static responses if available (for better performance)
     if entity in _COMMON_SYNONYMS:
-        logging.info(f"Synonyme für '{entity}' aus statischer Liste: {_COMMON_SYNONYMS[entity]}")
+        logger.info(f"Synonyms for '{entity}' from static list: {_COMMON_SYNONYMS[entity]}")
         return _COMMON_SYNONYMS[entity]
 
     try:
-        # Import hier zur Vermeidung zirkulärer Abhängigkeiten
+        # Import here to avoid circular dependencies
         from entityextractor.utils.openai_utils import call_openai_api
         
         if config is None:
@@ -67,12 +66,12 @@ def generate_synonyms_with_openai(entity, language="German", config=None):
             config = get_config()
         
         model = config.get("MODEL", "gpt-4.1-mini")
-        temperature = 0.2  # Niedrige Temperatur für konsistente Ergebnisse
+        temperature = 0.2  # Low temperature for consistent results
 
-        # System-Prompt
+        # System prompt
         system_prompt = f"You are an assistant specialized in finding existing Wikipedia articles when direct searches have failed. Your expertise lies in identifying alternative terms and closely related concepts that definitely exist in {language} Wikipedia."
         
-        # User-Prompt
+        # User prompt
         user_prompt = f"A search for the term '{entity}' in {language} Wikipedia was unsuccessful. I need 3 alternative terms that:"
         user_prompt += "\n1. DEFINITELY exist as Wikipedia articles or redirects"
         user_prompt += "\n2. Are logically related to or synonymous with the original term"
@@ -85,7 +84,7 @@ def generate_synonyms_with_openai(entity, language="German", config=None):
         user_prompt += "\n\nImportant: Only suggest terms that are very likely to exist in Wikipedia. Respond ONLY with these 3 alternatives, one per line. NO explanations or other text."
 
         # Log Start der Synonym-Generierung
-        logging.info(f"Starte OpenAI-Synonym-Generierung für: '{entity}' in {language}")
+        logger.info(f"Starte OpenAI-Synonym-Generierung für: '{entity}' in {language}")
         start_time = time.time()
 
         # API-Anfrage
@@ -112,28 +111,28 @@ def generate_synonyms_with_openai(entity, language="German", config=None):
                 if clean_syn:
                     cleaned_synonyms.append(clean_syn)
             
-            logging.info(f"OpenAI-Synonym-Generierung für '{entity}' erfolgreich in {time.time() - start_time:.2f}s: {cleaned_synonyms}")
+            logger.info(f"OpenAI-Synonym-Generierung für '{entity}' erfolgreich in {time.time() - start_time:.2f}s: {cleaned_synonyms}")
             return cleaned_synonyms
 
-        logging.warning(f"OpenAI-Synonym-Generierung für '{entity}' fehlgeschlagen: Keine Antwort vom API-Call")
+        logger.warning(f"OpenAI-Synonym-Generierung für '{entity}' fehlgeschlagen: Keine Antwort vom API-Call")
         return []
         
     except Exception as e:
-        logging.error(f"Fehler bei der OpenAI-Synonymgenerierung für '{entity}': {str(e)}")
+        logger.error(f"Fehler bei der OpenAI-Synonymgenerierung für '{entity}': {str(e)}")
         return []
 
 
 def generate_entity_synonyms(entity, language="en", config=None):
     """
-    Generiert Synonyme für eine Entität mit OpenAI-Unterstützung und Caching.
+    Generates synonyms for an entity with OpenAI support and caching.
     
     Args:
-        entity: Name der Entität für die Synonyme generiert werden sollen
-        language: Zielsprache für die Synonyme als ISO-Code (de, en, fr, etc.)
-        config: Konfigurationsobjekt mit LLM-Einstellungen
+        entity: Name of the entity for which synonyms should be generated
+        language: Target language for synonyms as ISO code (de, en, fr, etc.)
+        config: Configuration object with LLM settings
         
     Returns:
-        Liste von Synonymen (kann leer sein bei Fehler)
+        List of synonyms (can be empty on error)
     """
     if not entity or len(entity) < 2:
         return []
@@ -141,63 +140,65 @@ def generate_entity_synonyms(entity, language="en", config=None):
     if config is None:
         config = DEFAULT_CONFIG
     
-    # Entferne Klammerzusätze für besseres Matching
+    # Remove parenthetical additions for better matching
     clean_entity = clean_title(entity)
     
-    # Cache-Schlüssel generieren
+    # Generate cache key
     cache_key = f"synonyms_{language}_{hashlib.sha256(clean_entity.encode()).hexdigest()}"
-    cache_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache")
+    if config is None or "CACHE_DIR" not in config:
+        raise ValueError("generate_entity_synonyms requires a config with 'CACHE_DIR'.")
+    cache_dir = config["CACHE_DIR"]
     cache_file = get_cache_path(cache_dir, "synonyms", cache_key)
-    cache_ttl = 86400 * 30  # 30 Tage Cache
+    cache_ttl = 86400 * 30  # 30 days cache
     
-    # Cache überprüfen
+    # Check cache
     cached = load_cache(cache_file)
     cache_valid = cached and (("timestamp" not in cached) or (time.time() - cached.get("timestamp", 0) < cache_ttl))
     if cache_valid and "synonyms" in cached and cached["synonyms"]:
         return cached["synonyms"]
     
     try:
-        # Sprache-zu-Vollname-Mapping
+        # Language-to-full-name mapping
         lang_map = get_language_map()
         lang_name = lang_map.get(language, "English")
         
-        # Synonyme mit OpenAI generieren
+        # Generate synonyms with OpenAI
         synonyms = generate_synonyms_with_openai(clean_entity, lang_name, config=config)
         
         if synonyms:
-            # Entferne Duplikate und den Original-Begriff
+            # Remove duplicates and the original term
             synonyms = [s for s in synonyms if s.lower() != clean_entity.lower()]
             unique_synonyms = []
             for syn in synonyms:
                 if syn and syn.lower() not in [s.lower() for s in unique_synonyms]:
                     unique_synonyms.append(syn)
             
-            # Cache setzen
+            # Set cache
             save_cache(cache_file, {"synonyms": unique_synonyms, "timestamp": time.time()})
             return unique_synonyms
     
     except Exception as e:
-        logging.error(f"Fehler beim Generieren von Synonymen für '{clean_entity}': {e}")
+        logger.error(f"Error generating synonyms for '{clean_entity}': {e}")
     
-    # Bei Fehler leere Liste zurückgeben und cachen
+    # Return empty list on error and cache it
     save_cache(cache_file, {"synonyms": [], "timestamp": time.time()})
     return []
 
 
 def get_entity_variations(entity, language="en", include_original=True, config=None):
     """
-    Erweiterte Funktion, die alle möglichen Variationen einer Entität zurückgibt.
+    Enhanced function that returns all possible variations of an entity.
     
-    Kombiniert Synonyme und andere Varianten wie Akronyme, usw.
+    Combines synonyms and other variants such as acronyms, etc.
     
     Args:
-        entity: Name der Entität
-        language: Zielsprache als ISO-Code (de, en, fr, etc.)
-        include_original: Ob der Originalname in der Ergebnisliste enthalten sein soll
-        config: Konfigurationsobjekt
+        entity: Name of the entity
+        language: Target language as ISO code (de, en, fr, etc.)
+        include_original: Whether the original name should be included in the result list
+        config: Configuration object
         
     Returns:
-        Liste aller Variationen der Entität
+        List of all variations of the entity
     """
     if not entity:
         return []
@@ -205,14 +206,14 @@ def get_entity_variations(entity, language="en", include_original=True, config=N
     # Original
     variations = [entity] if include_original else []
     
-    # Finde Synonyme
+    # Find synonyms
     synonyms = generate_entity_synonyms(entity, language, config)
     variations.extend(synonyms)
     
-    # Akronyme für mehrgliedrige Namen hinzufügen (z.B. "Europäische Union" -> "EU")
+    # Add acronyms for multi-word names (e.g., "European Union" -> "EU")
     words = entity.split()
     if len(words) > 1:
-        # Nur Wörter mit Großbuchstaben, ohne Artikel
+        # Only words with capital letters, without articles
         stop_words = {'der', 'die', 'das', 'the', 'a', 'an', 'of', 'for', 'and', 'oder', 'und', 'von', 'zu'}
         acronym_parts = [word[0].upper() for word in words if word.lower() not in stop_words and word[0].isalpha()]
         if len(acronym_parts) > 1:
@@ -220,7 +221,7 @@ def get_entity_variations(entity, language="en", include_original=True, config=N
             if acronym not in variations:
                 variations.append(acronym)
     
-    # Duplikate entfernen
+    # Remove duplicates
     seen = set()
     unique_variations = []
     for var in variations:

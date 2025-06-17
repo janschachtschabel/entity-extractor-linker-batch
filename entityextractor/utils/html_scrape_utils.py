@@ -1,28 +1,28 @@
 """
-HTML Scraping Utilities für den Entity Extractor.
+HTML Scraping Utilities for the Entity Extractor.
 
-Funktionen zum Scrapen und Extrahieren von Inhalten aus HTML-Seiten,
-insbesondere für Fallbacks bei Wikipedia-Seiten.
+Functions for scraping and extracting content from HTML pages,
+especially for fallbacks with Wikipedia pages.
 """
 
 import requests
-import logging
+from loguru import logger
 from bs4 import BeautifulSoup
 from entityextractor.utils.text_utils import is_valid_wikipedia_url
 
 def scrape_wikipedia_extract(url, timeout=10):
     """
-    Extrahiert den Hauptinhalt einer Wikipedia-Seite per BeautifulSoup wenn die API fehlschlägt.
+    Extracts the main content of a Wikipedia page using BeautifulSoup when the API fails.
     
     Args:
-        url: Wikipedia-URL
-        timeout: Timeout für die Anfrage in Sekunden
+        url: Wikipedia URL
+        timeout: Timeout for the request in seconds
         
     Returns:
-        Dictionary mit extract, title und categories (wenn verfügbar)
+        Dictionary with extract, title and categories (if available)
     """
     if not is_valid_wikipedia_url(url):
-        logging.warning(f"Ungültige Wikipedia-URL für Scraping: {url}")
+        logger.warning(f"Invalid Wikipedia URL for scraping: {url}")
         return None
     
     try:
@@ -32,24 +32,24 @@ def scrape_wikipedia_extract(url, timeout=10):
         response = requests.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()
         
-        # Parse HTML mit BeautifulSoup
+        # Parse HTML with BeautifulSoup
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Titel extrahieren
+        # Extract title
         title_tag = soup.find('h1', {'id': 'firstHeading'})
         title = title_tag.text.strip() if title_tag else ""
         
-        # Extrahiere den ersten Absatz (Extract)
+        # Extract the first paragraph (Extract)
         extract = ""
         content_div = soup.find('div', {'id': 'mw-content-text'})
         if content_div:
             paragraphs = content_div.find_all('p', recursive=False)
             for p in paragraphs:
-                if p.text.strip():  # Überspringe leere Absätze
+                if p.text.strip():  # Skip empty paragraphs
                     extract = p.text.strip()
                     break
         
-        # Kategorien extrahieren
+        # Extract categories
         categories = []
         catlinks = soup.find('div', {'id': 'catlinks'})
         if catlinks:
@@ -59,7 +59,7 @@ def scrape_wikipedia_extract(url, timeout=10):
                 if cat_text:
                     categories.append(cat_text)
         
-        logging.info(f"BeautifulSoup-Extraktion für '{url}' erfolgreich: Titel={title}, Extract-Länge={len(extract)}")
+        logger.info(f"BeautifulSoup extraction for '{url}' successful: Title={title}, Extract length={len(extract)}")
         
         return {
             "extract": extract,
@@ -69,5 +69,5 @@ def scrape_wikipedia_extract(url, timeout=10):
         }
     
     except Exception as e:
-        logging.error(f"Fehler beim BeautifulSoup-Scraping von '{url}': {str(e)}")
+        logger.error(f"Error during BeautifulSoup scraping of '{url}': {str(e)}")
         return None

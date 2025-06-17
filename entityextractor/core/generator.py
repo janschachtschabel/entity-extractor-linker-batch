@@ -57,13 +57,18 @@ def save_training_data(topic, entities, config=None):
             user_prompt = get_user_prompt_generate_de(max_entities, topic)
         
         # Build semicolon-separated assistant content for training
-        assistant_content = "\n".join(
-            f"{ent['name']}; {ent['type']}; {ent.get('wikipedia_url','')}; {ent.get('citation','')}" for ent in entities
-        )
+        # Prefer 6-column bilingual format for training data when available
+        def _entity_to_line(ent):
+            if ent.get('label_de') or ent.get('label_en'):
+                return f"{ent.get('label_de','')}; {ent.get('label_en','')}; {ent['type']}; " \
+                       f"{ent.get('wikipedia_url_de','')}; {ent.get('wikipedia_url_en','')}; {ent.get('citation','')}"
+            # Fallback to legacy 4-column format
+            return f"{ent['name']}; {ent['type']}; {ent.get('wikipedia_url','')}; {ent.get('citation','')}"
+        assistant_content = "\n".join(_entity_to_line(ent) for ent in entities)
         example = {
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Generate entities for topic '{topic}' as semicolon-separated lines: name; type; wikipedia_url; citation."},
+                {"role": "user", "content": f"Generate entities for topic '{topic}' as semicolon-separated lines: name_de; name_en; type; wikipedia_url_de; wikipedia_url_en; citation."},
                 {"role": "assistant", "content": assistant_content}
             ]
         }
@@ -173,12 +178,29 @@ def generate_entities(topic, user_config=None):
         processed_entities = []
         for ln in lines:
             parts = [p.strip() for p in ln.split(';')]
-            if len(parts) >= 4:
-                name, typ, url, citation = parts[:4]
-                # Generiere eine eindeutige UUID für jede Entität
+            if len(parts) >= 6:
+                name_de, name_en, typ, url_de, url_en, citation = parts[:6]
+                primary_name = name_de or name_en
+                primary_url = url_en or url_de
                 entity_id = str(uuid.uuid4())
                 processed_entities.append({
-                    'id': entity_id,  # Wichtig: Füge eine UUID hinzu
+                    'id': entity_id,
+                    'name': primary_name,
+                    'label_de': name_de,
+                    'label_en': name_en,
+                    'type': typ,
+                    'wikipedia_url': primary_url,
+                    'wikipedia_url_de': url_de,
+                    'wikipedia_url_en': url_en,
+                    'citation': citation,
+                    'inferred': 'implicit'
+                })
+            # --- FALLBACK: Legacy 4-column format ---
+            elif len(parts) >= 4:
+                name, typ, url, citation = parts[:4]
+                entity_id = str(uuid.uuid4())
+                processed_entities.append({
+                    'id': entity_id,
                     'name': name,
                     'type': typ,
                     'wikipedia_url': url,

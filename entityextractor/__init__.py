@@ -4,9 +4,12 @@ Entity Extractor - Ein leistungsstarkes Tool zur Identifizierung und Verknüpfun
 Dieses Paket bietet Funktionen zur Extraktion benannter Entitäten aus Texten, zur Generierung 
 von Entitäten zu Themen und zur Verknüpfung mit Wikipedia, Wikidata und DBpedia.
 Es enthält auch Funktionen zur Beziehungsextraktion und Knowledge Graph-Visualisierung.
+
+Die neue kontextbasierte Architektur ermöglicht eine optimierte Batch-Verarbeitung und
+strukturierte Datenübergabe zwischen den verschiedenen Services.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"  # Version aktualisiert wegen neuer kontextbasierter Architektur
 
 # Hauptfunktionen für Endbenutzer exportieren
 from entityextractor.api import (
@@ -15,13 +18,22 @@ from entityextractor.api import (
     create_knowledge_compendium
 )
 
-# Erweiterte Funktionen für fortgeschrittene Benutzer
+# Legacy-Funktionen (dictionary-basiert)
 from entityextractor.core import (
     extract_entities,
     generate_entities,
     link_entities,
     infer_entity_relationships,
     process_entities
+)
+
+# Kontext-basierte Architektur
+from entityextractor.core import (
+    EntityProcessingContext,
+    process_entity,
+    process_entities_batch,
+    generate_context_statistics,
+    visualize_contexts
 )
 
 # Konfigurations-Utility exportieren
@@ -33,12 +45,19 @@ __all__ = [
     "generate_and_link_entities",
     "create_knowledge_compendium",
     
-    # Erweiterte Funktionen
+    # Legacy-Funktionen (dictionary-basiert)
     "extract_entities",
     "generate_entities",
     "link_entities",
     "infer_entity_relationships",
     "process_entities",
+    
+    # Kontext-basierte Architektur
+    "EntityProcessingContext",
+    "process_entity",
+    "process_entities_batch",
+    "generate_context_statistics",
+    "visualize_contexts",
     
     # Hilfsfunktionen
     "get_config",

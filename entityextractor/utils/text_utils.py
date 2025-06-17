@@ -5,6 +5,7 @@ This module provides functions for processing and cleaning text data.
 """
 
 import re
+import urllib.parse
 
 def clean_json_from_markdown(raw_text):
     """
@@ -85,18 +86,18 @@ def strip_trailing_ellipsis(text):
         return text.rstrip()
     return text
 
-# Neue Funktion für Text-Chunking
+# New function for text chunking
 def chunk_text(text: str, size: int, overlap: int = 0) -> list:
     """
-    Teilt einen Text in überlappende Chunks auf.
+    Splits a text into overlapping chunks.
 
     Args:
-        text: Der vollständige Text.
-        size: Maximale Zeichenlänge eines Chunks.
-        overlap: Anzahl Zeichen, die sich zwischen Chunks überlappen.
+        text: The complete text.
+        size: Maximum character length of a chunk.
+        overlap: Number of characters that overlap between chunks.
 
     Returns:
-        Liste von Text-Chunks.
+        List of text chunks.
     """
     chunks = []
     start = 0
@@ -109,3 +110,23 @@ def chunk_text(text: str, size: int, overlap: int = 0) -> list:
             break
         start = max(end - overlap, 0)
     return chunks
+
+
+def sanitize_wikipedia_url(url):
+    """
+    Ensure the Wikipedia URL is correctly encoded (especially for German/Umlaut/Sonderzeichen).
+    Only encodes the article title part after '/wiki/'.
+    
+    Args:
+        url: Wikipedia URL to sanitize
+        
+    Returns:
+        Properly encoded Wikipedia URL
+    """
+    if "/wiki/" in url:
+        base, title = url.split("/wiki/", 1)
+        # Replace spaces with underscores (Wikipedia standard)
+        title = title.replace(" ", "_")
+        title_encoded = urllib.parse.quote(title, safe="_()%-")
+        return f"{base}/wiki/{title_encoded}"
+    return url

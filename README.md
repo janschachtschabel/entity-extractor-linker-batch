@@ -5,17 +5,18 @@
 
 Entity Extractor & Linker ist ein flexibles, modulares Tool zur automatisierten Extraktion und Generierung von Named Entities in bzw. zu beliebigen Texten. Es kann erkannte Entitäten direkt mit Informationen aus Wikipedia, Wikidata und DBpedia verknüpfen – inklusive mehrsprachiger Ausgaben (Deutsch, Englisch). Die Ergebnisse liegen in einer strukturierten JSON-Ausgabe vor, die Metadaten zu Entitäten und (optional) Beziehungen enthält. Beziehungen können als explizite (aus dem Text extrahierte) oder implizite (logisch geschlussfolgerte) Triple (Subjekt–Prädikat–Objekt) generiert und in interaktiven Knowledge Graphen visualisiert werden.
 
+**NEU**: Version 1.2.0 führt eine optimierte kontextbasierte Architektur ein, die Batch-Verarbeitung von Entitäten und strukturierte Datenübergabe zwischen Services ermöglicht, was zu besserer Performance und erweiterten Statistiken führt.
+
 ## Inhaltsverzeichnis
 
 - [Installation](#installation)
 - [Funktionen](#funktionen)
+- [API-Referenz](#api-referenz)
+- [Datenschema](#datenschema)
 - [Anwendungsbeispiele](#anwendungsbeispiele)
 - [Projektstruktur](#projektstruktur)
 - [Architektur-Übersicht](#architektur-übersicht)
-- [Funktionsweise](#funktionsweise)
-- [Tipps und Best Practices](#tipps-und-best-practices)
 - [Konfiguration](#konfiguration)
-- [Ausgabestruktur](#ausgabestruktur)
 - [Lizenz](#lizenz)
 - [Autor](#autor)
 
@@ -41,20 +42,98 @@ export OPENAI_API_KEY="<dein_api_key>"
 
 ## Funktionen
 
+### Kernfunktionen
 - **Entitäten extrahieren**: Direkt aus Texten identifizieren (extrahieren).
 - **Entitäten generieren**: Kontextbasiert neue Entitäten vorschlagen (generieren).
 - **Beziehungsextraktion**: Explizite Beziehungen (Subjekt; Prädikat; Objekt) im Text erkennen.
 - **Entitäteninferenz**: Implizite logische Knoten ergänzen und Knowledge Graph vervollständigen.
 - **Beziehungsinferenz**: Implizite logische Verbindungen ergänzen und Knowledge Graph vervollständigen.
-- **Knowledge Graph Completion (KGC)**: Fehlende Relationen in mehreren Runden automatisch generieren.
 - **Graph-Visualisierung**: Erzeuge statische PNG-Graphen oder interaktive HTML-Ansichten.
-- **Kompendium-Generierung**: Erstellung eines kompendialen (zusammenfassenden) Textes mit Referenzen (optional mit Optimierungen für Bildung).
+- **Kompendium-Generierung**: Erstellung eines kompendialen (zusammenfassenden) Textes mit Referenzen.
+
+### Neue kontextbasierte Architektur (v1.2.0)
+- **Optimierte Batch-Verarbeitung**: Effiziente Verarbeitung mehrerer Entitäten in Batches.
+- **Strukturierte Datenübergabe**: Verbesserte Kommunikation zwischen Services mit `EntityProcessingContext`.
+- **Erweiterte Statistiken**: Detaillierte Statistiken direkt aus Kontexten mit Prozesszeiten und Beziehungsinferenzstatus.
+- **Direkte Kontext-Visualisierung**: Erzeugung von Knowledge Graphs direkt aus `EntityProcessingContext`-Objekten.
+- **Verbesserte Schema-Validierung**: Umfassende Validierung für alle Aspekte der kontextbasierten Verarbeitung.
+
+### Technische Features
 - **Trainingsdaten-Generierung**: Speichere Entity- und Relationship-Daten als JSONL für OpenAI Fine-Tuning.
 - **LLM-Schnittstelle**: Kompatibel mit OpenAI-API, anpassbare Basis-URL und Modell.
 - **Wissensquellen-Integration**: Wikipedia, Wikidata, DBpedia (SPARQL + Lookup API Fallback).
 - **Caching**: Zwischenspeicherung von API-Antworten für schnellere wiederholte Zugriffe.
 - **Ratelimiter**: Fängt Fehler mit Ratelimits der Wissensquellen ab.
-- **Statistiken**: Vorberechnete Statistiken u.a. zu gehäuft auftretenen Kategorien.
+- **Mehrsprachigkeit**: Optimierte Unterstützung für Deutsch und Englisch mit korrekter Behandlung von Named Entities.
+
+## API-Referenz
+
+### High-Level Convenience
+
+| Funktion | Beschreibung |
+| -------- | ------------ |
+| `extract_and_link_entities(text, config)` | Extrahiert Entitäten aus freiem Text und verknüpft sie |
+| `generate_and_link_entities(topic, config)` | Generiert thematische Entitäten und verknüpft sie |
+| `create_knowledge_compendium(topic, config)` | Erstellt ein Kompendium inkl. Graph-Visualisierung |
+| `process_entities(input_data, config)` | Universeller Wrapper; erkennt Modus automatisch |
+
+Alle Funktionen sind `async`. Beispiel:
+
+```python
+import asyncio
+from entityextractor.api import extract_and_link_entities
+
+async def main():
+    res = await extract_and_link_entities("Berlin ist die Hauptstadt Deutschlands.", {"LANGUAGE": "de"})
+    print(res)
+
+asyncio.run(main())
+```
+
+#### Low-Level-Helpers
+Weitere Hilfsfunktionen findest du im Modul `entityextractor.core.api` (`extract_entities`, `link_entities`, `infer_entity_relationships` …).
+
+## Datenschema
+Eine ausführliche Beschreibung befindet sich in [`docs/DataModelsSchemas.md`](docs/DataModelsSchemas.md).
+Kurzfassung des Ergebnis-JSONs:
+
+```jsonc
+{
+  "entities": [
+    {
+      "entity": "Albert Einstein",
+      "details": { "typ": "Person", "inferred": "explicit" },
+      "sources": {
+        "wikipedia": { /* ... */ },
+        "wikidata": { /* ... */ },
+        "dbpedia": { /* ... */ }
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "subject": "Albert Einstein",
+      "predicate": "entwickelte",
+      "object": "Relativitätstheorie",
+      "inferred": "explicit",
+      "subject_type": "Person",
+      "object_type": "Theorie"
+    }
+  ],
+  "statistics": {
+    "total_entities": 1,
+    "types_distribution": { "Person": 1 },
+    "linked": { "wikipedia": 1, "wikidata": 1, "dbpedia": 0 },
+    "entity_connections": [ { "entity": "Albert Einstein", "count": 1 } ]
+  },
+  "knowledgegraph_visualisation": {
+    "static": "knowledge_graph.png",
+    "interactive": "knowledge_graph_interactive.html"
+  }
+}
+```
+
+Nur wenn die strikten Validierungskriterien eines Services erfüllt sind (z. B. URI + EN-Label + EN-Abstract bei DBpedia), wird dessen `status` auf `linked` gesetzt.
 
 ## Anwendungsbeispiele
 
@@ -73,6 +152,41 @@ config = {
 }
 result = extract_and_link_entities(text, config)
 print(json.dumps(result, ensure_ascii=False, indent=2))
+```
+
+### Kontextbasierte Verarbeitung (Neu in v1.2.0)
+
+```python
+from entityextractor import EntityProcessingContext, process_entity, visualize_contexts
+
+# Erstellen eines Verarbeitungskontexts
+context = EntityProcessingContext(
+    entity_name="Albert Einstein", 
+    entity_type="Person",
+    original_text="Albert Einstein entwickelte die Relativitätstheorie."
+)
+
+# Asynchrone Verarbeitung des Kontexts
+import asyncio
+
+async def process_example():
+    # Verarbeite den Kontext mit allen aktivierten Services
+    await process_entity(context.entity_name, context.entity_type, context.entity_id, context.original_text)
+    
+    # Zeige eine Zusammenfassung des verarbeiteten Kontexts
+    context.log_summary()
+    
+    # Visualisiere den Kontext (erstellt PNG und HTML)
+    visualize_contexts([context], output_name="einstein_graph")
+    
+    # Hole die strukturierte Ausgabe
+    output = context.get_output()
+    print(f"Entity: {output['entity']}")
+    print(f"Wikipedia URL: {output.get('sources', {}).get('wikipedia', {}).get('url', 'Nicht gefunden')}")
+
+# Führe das Beispiel aus
+loop = asyncio.get_event_loop()
+loop.run_until_complete(process_example())
 ```
 
 ### Entitäten generieren
@@ -289,12 +403,19 @@ Die Entity Extractor Bibliothek basiert auf einer geschichteten Architektur:
 1. **Öffentliche API** (entityextractor.api)
    - Stellt einfache Funktionen für Endbenutzer bereit
    - Fokus auf intuitive Benutzerfreundlichkeit und Flexibilität
+   - Unterstützt sowohl dictionary-basierte als auch kontext-basierte Architekturen
 
 2. **API-Schicht** (core/api/*)
    - Integriert Basisfunktionalität mit zusätzlichen Prozessen
    - Bietet die Hauptimplementierungen für alle öffentlichen Funktionen
+   - Exportiert sowohl dictionary-basierte als auch kontextbasierte API-Funktionen
 
-3. **Prozess-Schicht** (core/process/*)
+3. **Kontext-Schicht** (core/context.py)
+   - Zentrale `EntityProcessingContext`-Klasse zur strukturierten Datenübergabe
+   - Validierung und Schema-Prüfung für Service-Daten
+   - Management von Beziehungen und Metadaten
+
+4. **Prozess-Schicht** (core/process/*)
    - Verarbeitet und optimiert die Ergebnisse (Deduplizierung, Formatierung, etc.)
    - Steuert den Workflow durch Orchestrator-Komponenten
 
@@ -315,7 +436,6 @@ Die Entity Extractor Bibliothek implementiert eine mehrschichtige Verarbeitungsp
 3. **Wikidata-Integration**: Abruf von Wikidata-IDs, Typen und Beschreibungen.
 4. **DBpedia-Integration**: Nutzung von DBpedia für zusätzliche strukturierte Informationen.
 5. **Sprachübergreifende Verarbeitung**: Automatische Übersetzung und Suche in Deutsch und Englisch.
-6. **Knowledge Graph Completion (KGC)**: Iterative Vervollständigung fehlender Relationen.
 
 ## Tipps und Best Practices
 

@@ -1,52 +1,127 @@
 """
 renderer.py
 
-Funktionen zum Rendern von Wissensgraphen in verschiedene Ausgabeformate.
+Hauptmodul für die Visualisierung von Wissensgraphen in verschiedene Ausgabeformate.
+Dieses Modul delegiert die eigentliche Rendering-Arbeit an spezialisierte Module.
 """
 
-import networkx as nx
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-import os
 import logging
-import math
+import os
+import networkx as nx
 from pathlib import Path
-from pyvis.network import Network
 
-def render_graph_to_png(G, output_path, config=None):
+# Importiere die spezialisierten Renderer
+from .common import ensure_output_directory, GRAPH_STYLE, GRAPH_NODE_STYLE, GRAPH_EDGE_LENGTH
+from .png_renderer import render_graph_to_png
+from .html_renderer import render_graph_to_html
+
+def visualize_graph(G, output_dir, filename_prefix="knowledge_graph", config=None):
     """
-    Rendert einen gerichteten Graphen als statisches PNG-Bild.
+    Visualisiert einen Graphen als PNG und HTML.
     
     Args:
-        G (nx.DiGraph): Der zu rendernde Graph.
-        output_path (str): Der Ausgabepfad für die PNG-Datei.
-        config (dict, optional): Konfigurationsoptionen für das Rendering.
+        G: NetworkX DiGraph Objekt
+        output_dir: Ausgabeverzeichnis
+        filename_prefix: Präfix für die Dateinamen
+        config: Konfigurationswörterbuch
         
     Returns:
-        str: Der Pfad zur erzeugten PNG-Datei.
+        Dictionary mit absoluten Pfaden zu den erzeugten Visualisierungen
     """
+    if not G or G.number_of_nodes() == 0:
+        print("DEBUG: Cannot visualize empty graph")
+        logging.error("Cannot visualize empty graph")
+        return {}
+        
+    # Stelle sicher, dass das Ausgabeverzeichnis existiert
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    print(f"DEBUG: Ausgabeverzeichnis erstellt/existiert: {os.path.abspath(output_dir)}")
+    
+    # Erstelle Dateinamen für die Visualisierungen
+    png_path = os.path.join(output_dir, f"{filename_prefix}.png")
+    html_path = os.path.join(output_dir, f"{filename_prefix}.html")
+    
+    print(f"DEBUG: Versuche, Graph als PNG zu speichern nach: {os.path.abspath(png_path)}")
+    print(f"DEBUG: Versuche, Graph als HTML zu speichern nach: {os.path.abspath(html_path)}")
+    
+    # Rendere den Graphen als PNG und HTML
+    png_result = render_graph_to_png(G, png_path, config)
+    html_result = render_graph_to_html(G, html_path, config)
+    
+    # Überprüfe, ob die Dateien tatsächlich existieren
+    if png_result and os.path.exists(png_result):
+        print(f"DEBUG: PNG-Datei erfolgreich erstellt: {png_result}")
+    else:
+        print(f"DEBUG: FEHLER - PNG-Datei wurde nicht erstellt oder ist nicht auffindbar: {png_path}")
+    
+    if html_result and os.path.exists(html_result):
+        print(f"DEBUG: HTML-Datei erfolgreich erstellt: {html_result}")
+        print(f"HINWEIS: Um die interaktive HTML-Visualisierung anzuzeigen, öffnen Sie die folgende Datei in einem Browser: {html_result}")
+    else:
+        print(f"DEBUG: FEHLER - HTML-Datei wurde nicht erstellt oder ist nicht auffindbar: {html_path}")
+    
+    # Erstelle ein Dictionary mit den Ergebnissen
+    visualization_info = {}
+    if png_result:
+        visualization_info["png"] = png_result
+    if html_result:
+        visualization_info["html"] = html_result
+        
+    # Für die Rückwärtskompatibilität
+    result = {}
+    if visualization_info:
+        result["knowledgegraph_visualization"] = [visualization_info]
+        result["knowledgegraph_visualisation"] = [visualization_info]  # Alternative Schreibweise für Rückwärtskompatibilität
+        print(f"DEBUG: Visualisierungsinformationen wurden in das Ergebnis-Dictionary eingefügt")
+    
+    # Gib die absoluten Pfade zurück
+    return {"png": os.path.abspath(png_path) if png_result else None, 
+            "html": os.path.abspath(html_path) if html_result else None}
+
+# Die Funktionen render_graph_to_png und render_graph_to_html wurden in separate Module ausgelagert
+# und werden von dort importiert.
+    # Stelle sicher, dass das Ausgabeverzeichnis existiert
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        try:
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            print(f"DEBUG: PNG output directory created or exists: {os.path.abspath(output_dir)}")
+        except Exception as e:
+            print(f"DEBUG: Error creating PNG output directory: {str(e)}")
+            logging.error(f"Error creating PNG output directory: {str(e)}")
+            return None
+    
     try:
+        print(f"DEBUG: Rendering graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges to {output_path}")
         logging.info(f"Rendering graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges to {output_path}")
         
-        if G.number_of_nodes() == 0 or G.number_of_edges() == 0:
-            logging.error("Cannot render graph with no nodes or edges.")
+        if G.number_of_nodes() == 0:
+            print("DEBUG: Cannot render graph with no nodes.")
+            logging.error("Cannot render graph with no nodes.")
             return None
             
-        # Erstelle Ausgabeverzeichnis, falls nicht vorhanden
-        output_dir = os.path.dirname(output_path)
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
+        # We can render graphs with no edges (isolated nodes)
+        if G.number_of_edges() == 0:
+            print("DEBUG: Graph has no edges, will render isolated nodes")
+            logging.warning("Graph has no edges, rendering isolated nodes only.")
+            
         # Wähle den Stil basierend auf der Konfiguration
-        style = config.get("GRAPH_STYLE", "modern") if config else "modern"
+        style = config.get("GRAPH_STYLE", GRAPH_STYLE) if config else GRAPH_STYLE
         
         plt.figure(figsize=(12, 10))
         
         # Bestimme das Layout basierend auf dem Stil und der Graphgröße
-        if G.number_of_nodes() < 20:
+        if G.number_of_edges() == 0:
+            # Für Graphen ohne Kanten verwenden wir ein kreisförmiges Layout
+            print("DEBUG: Using circular layout for graph with isolated nodes")
+            pos = nx.circular_layout(G)
+        elif G.number_of_nodes() < 20:
             # Für kleinere Graphen verwenden wir Kamada-Kawai für ein ästhetischeres Layout
+            print("DEBUG: Using Kamada-Kawai layout for small graph")
             pos = nx.kamada_kawai_layout(G)
         else:
             # Für größere Graphen verwenden wir das schnellere Spring-Layout
+            print("DEBUG: Using spring layout for larger graph")
             pos = nx.spring_layout(G, k=0.3, iterations=50)
             
             # Verbesserte Überlappungsprävention mit mehr Iterationen und größerem Mindestabstand
@@ -88,50 +163,6 @@ def render_graph_to_png(G, output_path, config=None):
                 if iteration > max_iterations // 2 and overlap:
                     min_dist *= 0.98
         
-                # --- Helper for entity type normalization and color assignment ---
-        def get_entity_type_color_map(G, config, style):
-            import matplotlib.cm as cm
-            import matplotlib.colors as mcolors
-            entity_types = set()
-            normalized_entity_types = {}
-            for node, data in G.nodes(data=True):
-                entity_type = data.get('entity_type', '')
-                name = data.get('name', str(node))
-                if (not entity_type or entity_type == 'Unknown') and config and 'ENTITY_TYPES' in config:
-                    entity_types_map = config.get('ENTITY_TYPES', {})
-                    for k, v in entity_types_map.items():
-                        if k.strip().lower() == name.strip().lower():
-                            entity_type = v
-                            G.nodes[node]['entity_type'] = entity_type
-                            break
-                if not entity_type:
-                    entity_type = 'Unknown'
-                normalized_type = entity_type.capitalize()
-                entity_types.add(normalized_type)
-                normalized_entity_types[node] = normalized_type
-            # Use a large colormap if needed
-            sorted_types = sorted(entity_types)
-            n_types = len(sorted_types)
-            if style == "minimal":
-                base_colors = ['#333333', '#555555', '#777777', '#999999', '#BBBBBB', '#DDDDDD']
-                colors = (base_colors * ((n_types // len(base_colors)) + 1))[:n_types]
-                edge_color = '#555555'
-            elif style == "classic":
-                base_colors = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33']
-                colors = (base_colors * ((n_types // len(base_colors)) + 1))[:n_types]
-                edge_color = '#000000'
-            else:
-                # Use tab20 or hsv for modern/large graphs
-                if n_types <= 20:
-                    cmap = cm.get_cmap('tab20', n_types)
-                else:
-                    cmap = cm.get_cmap('hsv', n_types)
-                colors = [mcolors.to_hex(cmap(i)) for i in range(n_types)]
-                edge_color = '#333333'
-            type_color_map = {typ: colors[i] for i, typ in enumerate(sorted_types)}
-            return normalized_entity_types, type_color_map, edge_color
-        # --- End helper ---
-
         normalized_entity_types, type_color_map, edge_color = get_entity_type_color_map(G, config, style)
         # Use only the color map and edge_color from the helper.
         # node_size, font_size, and alpha can be set as needed after this point, if required for plotting.
@@ -143,12 +174,25 @@ def render_graph_to_png(G, output_path, config=None):
         types_with_colors = {typ: type_color_map[typ] for typ in sorted(set(normalized_entity_types.values()))}
 
         
+        # Sammle mehrfache Kanten zwischen gleichen Knoten, um sie zu biegen
+        edge_count = {}
+        for u, v in G.edges():
+            if (u, v) in edge_count:
+                edge_count[(u, v)] += 1
+            else:
+                edge_count[(u, v)] = 1
+        
         # Zeichne Kanten mit unterschiedlichen Stilen und Farben für explizite und implizite Beziehungen
         edge_styles = []
         edge_widths = []
         edge_colors = []
+        edge_connectionstyles = []
         
-        for _, _, data in G.edges(data=True):
+        # Zähle Kanten zwischen gleichen Knotenpaaren
+        edge_index = {}
+        
+        for u, v, data in G.edges(data=True):
+            # Bestimme den Stil basierend auf implizit/explizit
             if data.get('inferred') == 'implicit':
                 edge_styles.append('dashed')
                 edge_widths.append(1.0)
@@ -157,6 +201,29 @@ def render_graph_to_png(G, output_path, config=None):
                 edge_styles.append('solid')
                 edge_widths.append(1.8)
                 edge_colors.append('#333333')  # Dunkelgrau für explizite Beziehungen
+            
+            # Bestimme gebogene Verbindungsstile für mehrfache Kanten
+            key = (u, v)
+            if edge_count[key] > 1:
+                if key not in edge_index:
+                    edge_index[key] = 0
+                else:
+                    edge_index[key] += 1
+                
+                # Berechne Biegungsgrad basierend auf der Kantenanzahl und dem Index
+                idx = edge_index[key]
+                total = edge_count[key]
+                rad = 0.3 + (idx * 0.2)  # Zunehmender Biegungsgrad
+                
+                # Alternierende Biegung nach links und rechts
+                if idx % 2 == 0:
+                    connectionstyle = f'arc3,rad={rad}'
+                else:
+                    connectionstyle = f'arc3,rad=-{rad}'
+                
+                edge_connectionstyles.append(connectionstyle)
+            else:
+                edge_connectionstyles.append('arc3,rad=0')  # Gerade Linie
         
         # Verwende nur die Namen als Labels, ohne Typinformation
         node_labels = {}
@@ -167,21 +234,35 @@ def render_graph_to_png(G, output_path, config=None):
                 name = name.capitalize()  
             node_labels[node] = name
         
-        # Zeichne den Graphen
-        nx.draw_networkx(
+        # Zeichne zuerst nur die Knoten
+        nx.draw_networkx_nodes(
             G, pos, 
-            labels=node_labels,
             node_color=node_colors,
             node_size=node_size,  # Standard-Knotengröße
-            font_size=font_size,
-            font_weight='bold',
-            arrowsize=15,
-            width=edge_widths,
-            style=edge_styles,
-            edge_color=edge_colors,
-            arrows=True,
             alpha=alpha
         )
+        
+        # Zeichne die Knotenlabels
+        nx.draw_networkx_labels(
+            G, pos,
+            labels=node_labels,
+            font_size=font_size,
+            font_weight='bold'
+        )
+        
+        # Zeichne die Kanten mit individuellen Verbindungsstilen
+        for i, (u, v) in enumerate(G.edges()):
+            nx.draw_networkx_edges(
+                G, pos, 
+                edgelist=[(u, v)],
+                width=edge_widths[i],
+                style=edge_styles[i],
+                edge_color=[edge_colors[i]],
+                arrows=True,
+                arrowsize=15,
+                alpha=alpha,
+                connectionstyle=edge_connectionstyles[i]
+            )
         
         # Zeichne Kantenbeschriftungen (Prädikate)
         edge_labels = {(u, v): data.get('predicate', '') for u, v, data in G.edges(data=True)}
@@ -206,44 +287,59 @@ def render_graph_to_png(G, output_path, config=None):
         plt.axis('off')
         plt.tight_layout()
         
-        # Speichere das Bild
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        # Speichere die Grafik
+        plt.savefig(output_path, bbox_inches='tight', dpi=300)
         plt.close()
         
-        logging.info(f"Knowledge Graph PNG gespeichert: {output_path}")
-        return output_path
-        
+        abs_path = os.path.abspath(output_path)
+        logging.info(f"Graph als PNG gespeichert: {abs_path}")
+        print(f"DEBUG: Graph als PNG gespeichert: {abs_path}")
+        return abs_path
     except Exception as e:
-        logging.error(f"Fehler beim Rendern des PNG-Graphen: {str(e)}", exc_info=True)
+        print(f"DEBUG: Fehler beim Speichern des PNG-Graphen: {str(e)}")
+        logging.error(f"Fehler beim Speichern des PNG-Graphen: {str(e)}")
         return None
 
 def render_graph_to_html(G, output_path, config=None):
-    """
-    Rendert einen gerichteten Graphen als interaktive HTML-Visualisierung.
+    """Rendert einen Graphen als interaktive HTML-Visualisierung.
     
     Args:
-        G (nx.DiGraph): Der zu rendernde Graph.
-        output_path (str): Der Ausgabepfad für die HTML-Datei.
-        config (dict, optional): Konfigurationsoptionen für das Rendering.
+        G: NetworkX DiGraph Objekt
+        output_path: Pfad zum Speichern der HTML-Datei
+        config: Konfigurationswörterbuch
         
     Returns:
-        str: Der Pfad zur erzeugten HTML-Datei.
+        Absoluter Pfad zur gespeicherten HTML-Datei oder None bei Fehler
     """
+    # Stelle sicher, dass das Ausgabeverzeichnis existiert
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        try:
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            print(f"DEBUG: HTML output directory created or exists: {os.path.abspath(output_dir)}")
+            logging.info(f"Ensuring output directory exists: {os.path.abspath(output_dir)}")
+        except Exception as e:
+            print(f"DEBUG: Error creating HTML output directory: {str(e)}")
+            logging.error(f"Error creating HTML output directory: {str(e)}")
+            return None
     try:
+        print(f"DEBUG: Rendering interactive graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges to {output_path}")
         logging.info(f"Rendering interactive graph with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges to {output_path}")
         
-        if G.number_of_nodes() == 0 or G.number_of_edges() == 0:
-            logging.error("Cannot render graph with no nodes or edges.")
+        if G.number_of_nodes() == 0:
+            print("DEBUG: Cannot render graph with no nodes.")
+            logging.error("Cannot render graph with no nodes.")
             return None
             
-        # Erstelle Ausgabeverzeichnis, falls nicht vorhanden
-        output_dir = os.path.dirname(output_path)
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
+        # We can render graphs with no edges (isolated nodes)
+        if G.number_of_edges() == 0:
+            print("DEBUG: Graph has no edges, will render isolated nodes in HTML")
+            logging.warning("Graph has no edges, rendering isolated nodes only in HTML.")
+            
         # Wähle Stil, Node-Stil und Kantenlänge basierend auf der Konfiguration
-        style = config.get("GRAPH_STYLE", "modern") if config else "modern"
-        node_style = config.get("GRAPH_NODE_STYLE", "label_above") if config else "label_above"
-        edge_length = config.get("GRAPH_EDGE_LENGTH", "standard") if config else "standard"
+        style = config.get("GRAPH_STYLE", GRAPH_STYLE) if config else GRAPH_STYLE
+        node_style = config.get("GRAPH_NODE_STYLE", GRAPH_NODE_STYLE) if config else GRAPH_NODE_STYLE
+        edge_length = config.get("GRAPH_EDGE_LENGTH", GRAPH_EDGE_LENGTH) if config else GRAPH_EDGE_LENGTH
         
         # Bestimme das Layout für die Knoten und Kantenlänge
         # Anpassung der Kantenlänge basierend auf der Konfiguration
@@ -261,9 +357,15 @@ def render_graph_to_html(G, output_path, config=None):
             min_dist = 0.2
             scale_factor = 1.2
             
-        if G.number_of_nodes() < 20:
+        if G.number_of_edges() == 0:
+            # Für Graphen ohne Kanten verwenden wir ein kreisförmiges Layout
+            print("DEBUG: Using circular layout for HTML graph with isolated nodes")
+            pos = nx.circular_layout(G)
+        elif G.number_of_nodes() < 20:
+            print("DEBUG: Using Kamada-Kawai layout for small HTML graph")
             pos = nx.kamada_kawai_layout(G)
         else:
+            print("DEBUG: Using spring layout for larger HTML graph")
             pos = nx.spring_layout(G, k=k_factor, iterations=50)
             # Überlappungsprävention
             max_iterations = 100
@@ -290,51 +392,16 @@ def render_graph_to_html(G, output_path, config=None):
                 if iteration > max_iterations // 2 and overlap:
                     min_dist *= 0.98
         # Erstelle interaktives Netzwerk mit PyVis
+        print(f"DEBUG: Creating PyVis network with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges")
         net = Network(height="800px", width="100%", directed=True, bgcolor="#ffffff", font_color="#222", notebook=False)
+        
+        # Wichtig: Zuerst alle Knoten zum Netzwerk hinzufügen, bevor Kanten hinzugefügt werden
+        print("DEBUG: Adding nodes to PyVis network")
         # Wiederverwendung der statischen Positionen und Invertierung von Y für übereinstimmende Ausrichtung
         scale_px = 500
         pos_inter = {node: (coords[0] * scale_px, -coords[1] * scale_px) for node, coords in pos.items()}
         
-                # Use shared helper for normalization and color assignment
-        import matplotlib.cm as cm
-        import matplotlib.colors as mcolors
-        def get_entity_type_color_map(G, config, style):
-            entity_types = set()
-            normalized_entity_types = {}
-            for node, data in G.nodes(data=True):
-                entity_type = data.get('entity_type', '')
-                name = data.get('name', str(node))
-                if (not entity_type or entity_type == 'Unknown') and config and 'ENTITY_TYPES' in config:
-                    entity_types_map = config.get('ENTITY_TYPES', {})
-                    for k, v in entity_types_map.items():
-                        if k.strip().lower() == name.strip().lower():
-                            entity_type = v
-                            G.nodes[node]['entity_type'] = entity_type
-                            break
-                if not entity_type:
-                    entity_type = 'Unknown'
-                normalized_type = entity_type.capitalize()
-                entity_types.add(normalized_type)
-                normalized_entity_types[node] = normalized_type
-            sorted_types = sorted(entity_types)
-            n_types = len(sorted_types)
-            if style == "minimal":
-                base_colors = ['#333333', '#555555', '#777777', '#999999', '#BBBBBB', '#DDDDDD']
-                colors = (base_colors * ((n_types // len(base_colors)) + 1))[:n_types]
-                edge_color = '#555555'
-            elif style == "classic":
-                base_colors = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33']
-                colors = (base_colors * ((n_types // len(base_colors)) + 1))[:n_types]
-                edge_color = '#000000'
-            else:
-                if n_types <= 20:
-                    cmap = cm.get_cmap('tab20', n_types)
-                else:
-                    cmap = cm.get_cmap('hsv', n_types)
-                colors = [mcolors.to_hex(cmap(i)) for i in range(n_types)]
-                edge_color = '#333333'
-            type_color_map = {typ: colors[i] for i, typ in enumerate(sorted_types)}
-            return normalized_entity_types, type_color_map, edge_color
+        # Verwende die gemeinsame Hilfsfunktion für Farbzuordnung
         normalized_entity_types, type_color_map, edge_color = get_entity_type_color_map(G, config, style)
         
         # Füge Knoten hinzu
@@ -348,43 +415,66 @@ def render_graph_to_html(G, output_path, config=None):
             normalized_type = normalized_entity_types.get(node, 'Unknown')
             color = {'background': type_color_map.get(normalized_type, '#f2f2f2'), 'border': '#222222'}
 
-            # Tooltip für alle Node-Stile gleich aufbauen
-            title = f"<b>{name}</b>"
+            # Erstelle einen verbesserten Tooltip mit allen verfügbaren Informationen und korrekter HTML-Formatierung
+            title = f"<div style='padding:5px;'>"
+            title += f"<div style='font-size:14px;font-weight:bold;margin-bottom:5px;'>{name}</div>"  # Name in Fettdruck
+            
             if entity_type:
-                title += f"<br><i>Typ: {entity_type}</i>"
-            # Füge nur wichtige Links hinzu (ohne IDs)
+                title += f"<div style='margin-bottom:5px;'><i>Typ: {entity_type}</i></div>"
+            
+            # Füge alle verfügbaren Links und IDs hinzu
             wiki_url = node_data.get('wikipedia_url', '')
             if wiki_url:
                 wiki_name = wiki_url.split('/')[-1].replace('_', ' ')
-                title += f"<br>Wikipedia: <a href='{wiki_url}' target='_blank'>{wiki_name}</a>"
+                title += f"<div style='margin-bottom:3px;'>Wikipedia: <a href='{wiki_url}' target='_blank' style='color:#0645ad;text-decoration:underline;'>{wiki_name}</a></div>"
+                title += f"<div style='margin-bottom:3px;font-size:11px;color:#666;word-break:break-all;'>URL: {wiki_url}</div>"
+            
+            wikidata_id = node_data.get('wikidata_id', '')
+            if wikidata_id:
+                wikidata_url = f"https://www.wikidata.org/wiki/{wikidata_id}"
+                title += f"<div style='margin-bottom:3px;'>Wikidata: <a href='{wikidata_url}' target='_blank' style='color:#0645ad;text-decoration:underline;'>{wikidata_id}</a></div>"
+                title += f"<div style='margin-bottom:3px;font-size:11px;color:#666;word-break:break-all;'>URL: {wikidata_url}</div>"
+            
+            dbpedia_uri = node_data.get('dbpedia_uri', '')
+            if dbpedia_uri:
+                dbpedia_short = dbpedia_uri.split('/')[-1]
+                title += f"<div style='margin-bottom:3px;'>DBpedia: <a href='{dbpedia_uri}' target='_blank' style='color:#0645ad;text-decoration:underline;'>{dbpedia_short}</a></div>"
+                title += f"<div style='margin-bottom:3px;font-size:11px;color:#666;word-break:break-all;'>URI: {dbpedia_uri}</div>"
+            
+            title += "</div>"
             
             # Node-Styling basierend auf dem GRAPH_NODE_STYLE Parameter
             if node_style == "label_above":
-                # Kleiner Kreis mit Label darüber (manueller Abstand mit Newline)
-                # Label wird beim ersten Rendern über dem Kreis angezeigt
+                # Kleiner Kreis mit Label darüber - verwende leeren Kreis und platziere Text darüber
                 net.add_node(
                     node, 
-                    label=name + '\n\n',  # Zwei Zeilenumbrüche schieben Label nach oben
+                    label=name,
                     title=title,
                     color=color, 
                     x=x, y=y, 
-                    physics=False,
-                    shape='circle', 
-                    size=14,  # Kleine Kreise
+                    physics=False,  # Physics deaktiviert, aber Knoten können bewegt werden
+                    shape='dot',    # Verwende dot statt circle
+                    size=10,        # Kleinere Kreise
                     font={'size': 12, 'face': 'arial', 'background': 'rgba(255,255,255,0.8)'},
+                    labelHighlightBold=True,
+                    fixed=False,    # Nicht fixiert, damit Knoten bewegt werden können
+                    font_vadjust=-20  # Verschiebe Label nach oben
                 )
             elif node_style == "label_below":
-                # Kleiner Kreis mit Label darunter
+                # Kleiner Kreis mit Label darunter - verwende leeren Kreis und platziere Text darunter
                 net.add_node(
                     node, 
-                    label='\n\n' + name,  # Zwei Zeilenumbrüche schieben Label nach unten 
+                    label=name,
                     title=title,
                     color=color, 
                     x=x, y=y, 
-                    physics=False,
-                    shape='circle', 
-                    size=14,  # Kleine Kreise
+                    physics=False,  # Physics deaktiviert, aber Knoten können bewegt werden
+                    shape='dot',    # Verwende dot statt circle
+                    size=10,        # Kleinere Kreise
                     font={'size': 12, 'face': 'arial', 'background': 'rgba(255,255,255,0.8)'},
+                    labelHighlightBold=True,
+                    fixed=False,    # Nicht fixiert, damit Knoten bewegt werden können
+                    font_vadjust=20  # Verschiebe Label nach unten
                 )
             else:  # "label_inside" oder default
                 # Großer Kreis mit Label im Kreis (Standard Vis.js Verhalten)
@@ -400,84 +490,170 @@ def render_graph_to_html(G, output_path, config=None):
                     font={'size': 12, 'face': 'arial'},
                 )
         # Set interaction options: allow node drag, zoom, pan; disable hover
-        net.set_options('''{
-            "interaction": {
-                "dragNodes": true,
-                "dragView": true,
-                "zoomView": true,
-                "hover": false
-            },
-            "physics": {
-                "enabled": false
-            }
-        }''')
-        # Optionally, try to further prevent node overlap (vis.js limitation)
-        # Legend injection remains unchanged below
+        net.set_options('''{"interaction": {"dragNodes": true, "dragView": true, "zoomView": true, "hover": false}, "physics": {"enabled": false}}''')
 
             
         # Füge Kanten hinzu
+        print(f"DEBUG: Adding {G.number_of_edges()} edges to PyVis network")
+        edge_count = 0
+        
+        # Sammle alle Kanten zwischen den gleichen Knoten, um sie später zu versetzen
+        edge_groups = {}
         for u, v, data in G.edges(data=True):
-            label = data.get("predicate", "")
-            is_implicit = data.get("inferred", "") == "implicit"
-            subject_type = data.get("subject_type", "")
-            object_type = data.get("object_type", "")
+            key = (u, v)
+            if key not in edge_groups:
+                edge_groups[key] = []
+            edge_groups[key].append(data)
+        
+        # Füge jede Kante mit angepasster Position hinzu
+        for (u, v), edges_data in edge_groups.items():
+            num_edges = len(edges_data)
             
-            # Erstelle ausführlichen Tooltip für die Kante
-            title = f"\u003cb\u003e{label}\u003c/b\u003e"
-            title += f"\u003cbr\u003eType: {['explicit', 'implicit'][is_implicit]}"
-            if subject_type or object_type:
-                title += f"\u003cbr\u003eSubject Type: {subject_type}\u003cbr\u003eObject Type: {object_type}"
-            
-            # Verschiedene Farben für explizite/implizite Beziehungen
-            rel_color = '#999999' if is_implicit else '#333333'
-            width = 1 if is_implicit else 2
-            
-            net.add_edge(
-                u, v, 
-                label=label, 
-                title=title,
-                color=rel_color, 
-                arrows="to",
-                dashes=is_implicit, 
-                width=width,
-                font={"size": 11}, 
-                smooth=False
-            )
+            for i, data in enumerate(edges_data):
+                edge_count += 1
+                label = data.get("predicate", "")
+                is_implicit = data.get("inferred", "") == "implicit"
+                subject_type = data.get("subject_type", "")
+                object_type = data.get("object_type", "")
+                
+                # Erstelle ausführlichen Tooltip für die Kante mit verbessertem HTML-Markup
+                title = f"<div style='padding:5px;'>"
+                title += f"<div style='font-size:14px;font-weight:bold;margin-bottom:5px;'>{label}</div>"
+                title += f"<div style='margin-bottom:3px;'>Type: <b>{['Explicit', 'Implicit'][is_implicit]}</b></div>"
+                if subject_type or object_type:
+                    title += f"<div style='margin-bottom:3px;'>Subject Type: {subject_type}</div>"
+                    title += f"<div style='margin-bottom:3px;'>Object Type: {object_type}</div>"
+                title += "</div>"
+                
+                # Verschiedene Farben für explizite/implizite Beziehungen
+                rel_color = '#999999' if is_implicit else '#333333'
+                width = 1.5 if is_implicit else 3
+                
+                # Debug-Ausgabe für jede Kante
+                print(f"DEBUG: Adding edge {edge_count}: {u} -> {v} with label '{label}'")
+                
+                # Berechne Versatz für mehrere Kanten zwischen den gleichen Knoten
+                smooth_type = {}
+                if num_edges > 1:
+                    # Verwende verschiedene Kurventypen für mehrere Kanten
+                    smooth_type = {
+                        "type": "curvedCW",
+                        "roundness": 0.2 + (i * 0.15)  # Zunehmende Kurvenrundheit für jede Kante
+                    }
+                    # Kürze lange Labels ab, um Überlappungen zu reduzieren
+                    if len(label) > 15:
+                        label = label[:12] + "..."
+                else:
+                    smooth_type = {"type": "continuous"}
+                
+                # Füge die Kante mit angepassten Eigenschaften hinzu
+                net.add_edge(
+                    u, v, 
+                    label=label, 
+                    title=title,
+                    color=rel_color, 
+                    arrows={"to": {"enabled": True, "scaleFactor": 1}},
+                    dashes=is_implicit, 
+                    width=width,
+                    font={"size": 11, "color": "#333333", "background": "rgba(255,255,255,0.7)", "strokeWidth": 0}, 
+                    smooth=smooth_type,
+                    physics=False
+                )
             
         # Speichere interaktives HTML direkt
         net.write_html(output_path)
         
+        # Füge zusätzliche Netzwerkoptionen hinzu für bessere Lesbarkeit
+        net.set_options('''
+        {
+            "interaction": {
+                "dragNodes": true,
+                "dragView": true,
+                "zoomView": true,
+                "hover": true,
+                "tooltipDelay": 200
+            },
+            "physics": {
+                "enabled": false
+            },
+            "edges": {
+                "font": {
+                    "background": "rgba(255,255,255,0.7)"
+                },
+                "smooth": {
+                    "type": "continuous",
+                    "forceDirection": "none"
+                }
+            }
+        }
+        ''')
+        
         # Injiziere HTML-Legende am Seitenanfang
-        legend_html = '<div style="padding:8px; background:#f9f9f9; border:1px solid #ddd; margin:0 auto 8px auto; border-radius:5px; font-size:12px; max-width:800px; text-align:center;">'
-        legend_html += '<h4 style="margin-top:0; margin-bottom:5px;">Knowledge Graph</h4>'
+        # Verbesserte Legende mit deutlicherer Darstellung und fester Position
+        legend_html = '''
+        <div style="padding:12px; background:#f9f9f9; border:1px solid #ddd; margin:10px auto; 
+                    border-radius:5px; font-size:13px; max-width:90%; text-align:center; 
+                    box-shadow:0 2px 4px rgba(0,0,0,0.1); position:relative; z-index:1000;">
+            <h3 style="margin-top:0; margin-bottom:8px; color:#333;">Knowledge Graph</h3>
+        '''
         
         # Legende für Entitätstypen (sortiert für konsistente Anzeige)
-        legend_html += '<div style="margin:5px 0"><b>Entity Types:</b> '
+        legend_html += '<div style="margin:8px 0"><b>Entity Types:</b> '
         for typ, color in sorted(type_color_map.items()):
             if typ and typ != 'Unknown':
-                legend_html += f'<span style="background:{color};border:1px solid #444;padding:1px 4px;margin-right:4px;display:inline-block;font-size:11px;">{typ}</span>'
+                legend_html += f'<span style="background:{color};border:1px solid #444;padding:2px 6px;margin-right:6px;display:inline-block;font-size:12px;border-radius:3px;">{typ}</span>'
         legend_html += '</div>'
         
-        # Legende für Beziehungstypen
-        legend_html += '<div style="margin:5px 0"><b>Relationships:</b> '
-        legend_html += '<span style="border-bottom:1px solid #333;padding:1px 4px;margin-right:5px;display:inline-block;font-size:11px;">Explicit</span>'
-        legend_html += '<span style="border-bottom:1px dashed #555;padding:1px 4px;display:inline-block;font-size:11px;">Implicit</span>'
+        # Legende für Beziehungstypen mit deutlicherer Darstellung
+        legend_html += '<div style="margin:8px 0"><b>Relationships:</b> '
+        legend_html += '<span style="border-bottom:2px solid #333;padding:2px 6px;margin-right:8px;display:inline-block;font-size:12px;">Explicit</span>'
+        legend_html += '<span style="border-bottom:2px dashed #555;padding:2px 6px;display:inline-block;font-size:12px;">Implicit</span>'
         legend_html += '</div></div>'
         
-        # Füge die Legende nach dem <body>-Tag ein
+        # Füge die Legende nach dem <body>-Tag ein und stelle sicher, dass sie sichtbar ist
         with open(output_path, 'r', encoding='utf-8') as f:
             html_content = f.read()
-            
+        
+        # Verbesserte Methode zum Einfügen der Legende
+        # Erstelle eine feste Legende am oberen Rand des Bildschirms
+        fixed_legend_html = '''
+        <div style="position:fixed; top:0; left:0; right:0; background:#f9f9f9; border-bottom:1px solid #ddd; 
+                    padding:12px; font-size:13px; text-align:center; z-index:1000; 
+                    box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+            <h3 style="margin-top:0; margin-bottom:8px; color:#333;">Knowledge Graph</h3>
+        '''
+        
+        # Legende für Entitätstypen (sortiert für konsistente Anzeige)
+        fixed_legend_html += '<div style="margin:8px 0"><b>Entity Types:</b> '
+        for typ, color in sorted(type_color_map.items()):
+            if typ and typ != 'Unknown':
+                fixed_legend_html += f'<span style="background:{color};border:1px solid #444;padding:2px 6px;margin-right:6px;display:inline-block;font-size:12px;border-radius:3px;">{typ}</span>'
+        fixed_legend_html += '</div>'
+        
+        # Legende für Beziehungstypen mit deutlicherer Darstellung
+        fixed_legend_html += '<div style="margin:8px 0"><b>Relationships:</b> '
+        fixed_legend_html += '<span style="border-bottom:2px solid #333;padding:2px 6px;margin-right:8px;display:inline-block;font-size:12px;">Explicit</span>'
+        fixed_legend_html += '<span style="border-bottom:2px dashed #555;padding:2px 6px;display:inline-block;font-size:12px;">Implicit</span>'
+        fixed_legend_html += '</div></div>'
+        
+        # Füge die Legende direkt nach dem <body>-Tag ein
         if '<body>' in html_content:
-            html_content = html_content.replace('<body>', '<body>\n' + legend_html + '\n')
-            
+            html_content = html_content.replace('<body>', '<body>\n' + fixed_legend_html + '\n')
+        
+        # Füge Abstand zum Netzwerk hinzu, damit es unter der festen Legende erscheint
+        html_content = html_content.replace('<div id="mynetwork"', '<div style="padding-top:120px;"><div id="mynetwork"')
+        html_content = html_content.replace('</body>', '</div></body>')
+        
+        # Schreibe den geänderten HTML-Inhalt zurück
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
-            
-        logging.info(f"Interaktive Knowledge Graph HTML gespeichert: {output_path}")
-        return output_path
+        
+        abs_path = os.path.abspath(output_path)
+        logging.info(f"Graph als HTML gespeichert: {abs_path}")
+        print(f"DEBUG: Graph als HTML gespeichert: {abs_path}")
+        return abs_path
         
     except Exception as e:
-        logging.error(f"Fehler beim Rendern des HTML-Graphen: {str(e)}", exc_info=True)
-        return None
+        print(f"DEBUG: Fehler beim Speichern des HTML-Graphen: {str(e)}")
+        logging.error(f"Fehler beim Speichern des HTML-Graphen: {str(e)}")
         return None

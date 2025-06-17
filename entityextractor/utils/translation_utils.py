@@ -2,20 +2,19 @@
 # -*- coding: utf-8 -*-
 
 """
-Übersetzungs-Hilfsfunktionen für den Entity Extractor.
+Translation utilities for the Entity Extractor.
 
-Dieses Modul stellt Funktionen zur Übersetzung und Transformation von Titeln
-zwischen verschiedenen Sprachen bereit, hauptsächlich durch Nutzung der
-Wikipedia-Sprachlinks.
+This module provides functions for translating and transforming titles
+between different languages, primarily using Wikipedia language links.
 """
 
-import logging
 import hashlib
 import json
 import re
 import os
 import time
 import requests
+from loguru import logger
 
 from entityextractor.utils.cache_utils import get_cache_path, load_cache, save_cache
 from entityextractor.utils.rate_limiter import RateLimiter
@@ -33,30 +32,30 @@ _rate_limiter = RateLimiter(
 @_rate_limiter
 def _limited_get(url, **kwargs):
     """
-    Führt einen GET-Request mit Rate-Limiting durch.
+    Performs a GET request with rate limiting.
     
     Args:
-        url: URL für den Request
-        **kwargs: Zusätzliche Parameter für requests.get
+        url: URL for the request
+        **kwargs: Additional parameters for requests.get
         
     Returns:
-        Response-Objekt
+        Response object
     """
     return requests.get(url, **kwargs)
 
 
 def get_wikipedia_title_in_language(title, from_lang="de", to_lang="en", config=None):
     """
-    Konvertiert einen Wikipedia-Titel von einer Sprache in eine andere über Sprachlinks.
+    Converts a Wikipedia title from one language to another using language links.
     
     Args:
-        title: Der Wikipedia-Artikel-Titel
-        from_lang: Ausgangssprache des Titels
-        to_lang: Zielsprache für den Titel
-        config: Konfigurationswörterbuch mit Timeout-Einstellungen
+        title: The Wikipedia article title
+        from_lang: Source language of the title
+        to_lang: Target language for the title
+        config: Configuration dictionary with timeout settings
         
     Returns:
-        Der entsprechende Titel in der Zielsprache oder None wenn keine Übersetzung gefunden wurde
+        The corresponding title in the target language or None if no translation was found
     """
     if from_lang == to_lang:
         return title
@@ -77,7 +76,7 @@ def get_wikipedia_title_in_language(title, from_lang="de", to_lang="en", config=
     headers = {"User-Agent": config.get("USER_AGENT")}
     
     try:
-        logging.info(f"Suche Übersetzung von {from_lang}:{title} nach {to_lang}")
+        logger.info(f"Looking for translation from {from_lang}:{title} to {to_lang}")
         r = _limited_get(api_url, params=params, headers=headers, timeout=config.get('TIMEOUT_THIRD_PARTY', 15))
         r.raise_for_status()
         data = r.json()
@@ -88,72 +87,74 @@ def get_wikipedia_title_in_language(title, from_lang="de", to_lang="en", config=
         for page_id, page in pages.items():
             langlinks = page.get("langlinks", [])
             if langlinks:
-                # Nehme den ersten Eintrag - dies sollte die Version in der Zielsprache sein
+                # Take the first entry - this should be the version in the target language
                 target_title = langlinks[0].get("*")
                 break
                 
         if target_title:
-            logging.info(f"Übersetzung gefunden: {from_lang}:{title} -> {to_lang}:{target_title}")
+            logger.info(f"Translation found: {from_lang}:{title} -> {to_lang}:{target_title}")
             return target_title
         else:
-            logging.info(f"Keine Übersetzung gefunden von {from_lang}:{title} nach {to_lang}")
+            logger.info(f"No translation found from {from_lang}:{title} to {to_lang}")
             return None
             
     except Exception as e:
-        logging.error(f"Fehler beim Abrufen der Übersetzung für {title}: {e}")
+        logger.error(f"Error retrieving translation for {title}: {e}")
         return None
 
 
 def translate_to_english(title, lang="auto", cache_ttl=86400*30, config=None):
     """
-    Übersetzt einen Titel ins Englische unter Verwendung der Wikipedia-Sprachlinks.
+    Translates a title to English using Wikipedia language links.
     
     Args:
-        title: Der zu übersetzende Titel
-        lang: Die Quellsprache oder 'auto' für automatische Erkennung
-        cache_ttl: Cache-Zeit in Sekunden
-        config: Konfigurationswörterbuch
+        title: The title to translate
+        lang: The source language or 'auto' for automatic detection
+        cache_ttl: Cache time in seconds
+        config: Configuration dictionary
         
     Returns:
-        Der übersetzte Titel oder der Originaltitel wenn keine Übersetzung gefunden wurde
+        The translated title or the original title if no translation was found
     """
     if not title:
         return None
     
-    # Entferne Klammerzusätze für besseres Matching
+    # Remove parenthetical additions for better matching
     clean_title_str = clean_title(title)
     
-    # Wenn Sprache nicht angegeben, versuche automatische Erkennung
+    # If language is not specified, try automatic detection
     if lang == "auto":
         lang = detect_language(clean_title_str)
-        logging.info(f"Automatisch erkannte Sprache für '{clean_title_str}': {lang}")
+        logger.info(f"Automatically detected language for '{clean_title_str}': {lang}")
     
-    # Falls es bereits Englisch ist oder keine Sprache erkannt wurde, Original zurückgeben
+    # If it's already English or no language was detected, return the original
     if lang == "en" or not lang:
         return title
     
     if config is None:
         config = DEFAULT_CONFIG
     
-    # Cache-Schlüssel generieren
+    # Generate cache key
     cache_key = f"translate_{lang}_{hashlib.sha256(clean_title_str.encode()).hexdigest()}"
-    cache_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache")
+    if config is None or "CACHE_DIR" not in config:
+        raise ValueError("translate_to_english requires a config with 'CACHE_DIR'.")
+    cache_dir = config["CACHE_DIR"]
     cache_file = get_cache_path(cache_dir, "wikipedia", cache_key)
     
-    # Cache überprüfen
+    # Check cache
     cached = load_cache(cache_file)
     cache_valid = cached and (("timestamp" not in cached) or (time.time() - cached.get("timestamp", 0) < cache_ttl))
     if cache_valid:
         return cached.get("translated_title", clean_title_str)
     
-    # Zuerst versuchen, über Wikipedia-Sprachlinks zu übersetzen
+    # First try to translate via Wikipedia language links
     english_title = get_wikipedia_title_in_language(clean_title_str, from_lang=lang, to_lang="en", config=config)
     
-    # Ergebnis cachen und zurückgeben
+    # Cache result and return
     if english_title:
         save_cache(cache_file, {"translated_title": english_title, "timestamp": time.time()})
         return english_title
     
-    # Kein Ergebnis gefunden, Originaltitel zurückgeben
+    # No result found, return original title
     save_cache(cache_file, {"translated_title": clean_title_str, "timestamp": time.time()}) 
     return clean_title_str

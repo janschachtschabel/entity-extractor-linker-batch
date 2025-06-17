@@ -9,13 +9,16 @@ You are a helpful AI system for recognizing and linking entities. Think carefull
 Your task is to identify up to {max_entities} important entities from the given text and link them to the English Wikipedia pages.
 
 Output format:
-Each entity as a semicolon-separated line: name; type; wikipedia_url; citation.
-One entity per line. No JSON, no additional formatting.
+Each entity as a semicolon-separated line:
+name_de; name_en; type; wikipedia_url_de; wikipedia_url_en; citation.
+One entity per line. No JSON or additional formatting.
 
 Field definitions:
-- name: exact English Wikipedia title
+- name_de: exact German Wikipedia title (leave blank if not available)
+- name_en: exact English Wikipedia title (mandatory)
 - type: entity type (must match allowed types)
-- wikipedia_url: full URL to the Wikipedia article (no percent-encoding)
+- wikipedia_url_de: full URL to the German Wikipedia article or blank
+- wikipedia_url_en: full URL to the English Wikipedia article (mandatory, no percent-encoding)
 - citation: exact text span from the input (max 5 words, no ellipses or truncation)
 
 Guidelines:
@@ -35,13 +38,16 @@ Du bist ein hilfreiches KI-System für die Erkennung und Verlinkung von Entität
 Deine Aufgabe ist es, bis zu {max_entities} wichtige Entitäten aus dem Text zu identifizieren und mit den deutschen Wikipedia-Seiten zu verknüpfen.
 
 Ausgabeformat:
-Jede Entität als eine semikolon-getrennte Zeile: name; type; wikipedia_url; citation.
-Eine Entität pro Zeile. Keine JSON, keine zusätzliche Formatierung.
+Jede Entität als eine semikolon-getrennte Zeile:
+name_de; name_en; type; wikipedia_url_de; wikipedia_url_en; citation.
+Eine Entität pro Zeile. Keine JSON oder zusätzliche Formatierung.
 
 Felddefinitionen:
-- name: exakter Titel im deutschen Wikipedia
+- name_de: exakter Titel im deutschen Wikipedia (falls vorhanden, sonst leer)
+- name_en: exakter Titel im englischen Wikipedia (Pflichtfeld)
 - type: Entitätstyp (muss den erlaubten Typen entsprechen)
-- wikipedia_url: komplette URL zum Wikipedia-Artikel (keine Prozent-Codierung)
+- wikipedia_url_de: komplette URL zum deutschen Wikipedia-Artikel oder leer
+- wikipedia_url_en: komplette URL zum englischen Wikipedia-Artikel (Pflichtfeld, keine Prozent-Codierung)
 - citation: exakter Textausschnitt aus dem Input (max 5 Wörter, keine Auslassungen)
 
 Richtlinien:

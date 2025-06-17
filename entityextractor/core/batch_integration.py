@@ -11,9 +11,13 @@ mit der bestehenden API-Struktur verbinden und die Umstellung erleichtern.
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 
-from entityextractor.services.batch_wikipedia_service import batch_get_wikipedia_info
-from entityextractor.services.batch_dbpedia_service import batch_get_dbpedia_info
-from entityextractor.services.batch_wikidata_service import batch_get_wikidata_ids, batch_get_wikidata_entities
+# Importiere Hilfsfunktionen aus den modularen Services
+from entityextractor.services.wikipedia import BatchWikipediaService
+from entityextractor.services.dbpedia.service import DBpediaService
+from entityextractor.core.context import EntityProcessingContext
+from entityextractor.services.wikidata import get_batch_wikidata_service
+from entityextractor.services.wikidata.search import get_wikidata_ids_for_entities
+from entityextractor.services.wikidata.fetchers import get_wikidata_entities
 from entityextractor.utils.text_utils import is_valid_wikipedia_url
 from entityextractor.config.settings import get_config, DEFAULT_CONFIG
 
@@ -38,7 +42,45 @@ def batch_link_entities(entities: List[Dict[str, Any]], config=None) -> List[Dic
     entity_names = [entity.get("name") for entity in entities if entity.get("name")]
     entity_name_map = {entity.get("name"): entity for entity in entities if entity.get("name")}
     
-    wiki_results = batch_get_wikipedia_info(entity_names, lang=config.get("LANGUAGE", "de"), config=config)
+    # Verwende den modularisierten Service
+    import asyncio
+    wiki_service = BatchWikipediaService(config)
+    
+    # Erstelle Entity-Objekte für den Batch-Service
+    from entityextractor.models.entity import Entity
+    from entityextractor.models.base import LanguageCode
+    
+    wiki_entities = []
+    for name in entity_names:
+        import uuid
+        entity = Entity(id=str(uuid.uuid4()), name=name)
+        entity.label.set(LanguageCode.DE if config.get("LANGUAGE", "de") == "de" else LanguageCode.EN, name)
+        wiki_entities.append(entity)
+    
+    # Verarbeite Entitäten
+    wiki_entities = asyncio.get_event_loop().run_until_complete(wiki_service.enrich_entities(wiki_entities))
+    
+    # Konvertiere in das alte Format für Kompatibilität
+    wiki_results = {}
+    for entity in wiki_entities:
+        name = entity.label.get(LanguageCode.DE) or entity.label.get(LanguageCode.EN)
+        if name and entity.get_source('wikipedia'):
+            source = entity.get_source('wikipedia')
+            wiki_results[name] = {
+                'title': source.get('title', ''),
+                'url': source.get('url', ''),
+                'extract': source.get('extract', ''),
+                'thumbnail': source.get('thumbnail', ''),
+                'wikidata_id': source.get('wikidata_id', ''),
+                'internal_links': source.get('internal_links', []),
+                'image_info': source.get('image_info', None),
+                'status': source.get('status', 'unknown')
+            }
+        elif name:
+            wiki_results[name] = {
+                'title': name,
+                'status': 'not_found'
+            }
     
     # 2. Entitäten mit Wikipedia-Informationen aktualisieren
     for entity_name, wiki_data in wiki_results.items():
@@ -64,17 +106,18 @@ def batch_link_entities(entities: List[Dict[str, Any]], config=None) -> List[Dic
     }
     
     if entities_for_wikidata:
-        wikidata_results = batch_get_wikidata_ids(entities_for_wikidata, config=config)
+        # Verwende den modularisierten Service
+        wikidata_results = get_wikidata_ids_for_entities(entities_for_wikidata, config)
         
         # Entitäten mit Wikidata-IDs aktualisieren
-        for entity_name, wikidata_data in wikidata_results.items():
+        for entity_name, service_data in wikidata_results.items():
             if entity_name not in entity_name_map:
                 continue
                 
             entity = entity_name_map[entity_name]
             
-            if wikidata_data.get("status") == "found":
-                entity["wikidata_id"] = wikidata_data.get("wikidata_id")
+            if service_data and service_data.get("wikidata_data") and service_data["wikidata_data"].entity_id:
+                entity["wikidata_id"] = service_data["wikidata_data"].entity_id
     
     # 4. Wikidata-Details in einem Batch abrufen
     entities_with_wikidata_ids = {
@@ -84,23 +127,42 @@ def batch_link_entities(entities: List[Dict[str, Any]], config=None) -> List[Dic
     }
     
     if entities_with_wikidata_ids:
-        wikidata_details = batch_get_wikidata_entities(entities_with_wikidata_ids, config=config)
+        # Verwende den modularisierten Service
+        wikidata_details = get_wikidata_entities(entities_with_wikidata_ids, config)
         
         # Entitäten mit Wikidata-Details aktualisieren
-        for entity_name, details in wikidata_details.items():
+        for entity_name, service_data in wikidata_details.items():
             if entity_name not in entity_name_map:
                 continue
                 
             entity = entity_name_map[entity_name]
             
-            if details.get("status") == "found":
+            if service_data and service_data.get("wikidata_data"):
+                wikidata_data = service_data["wikidata_data"]
                 lang = config.get("LANGUAGE", "de")
-                entity["wikidata_description"] = details.get("descriptions", {}).get(lang) or details.get("descriptions", {}).get("en")
-                entity["wikidata_label"] = details.get("labels", {}).get(lang) or details.get("labels", {}).get("en")
-                entity["wikidata_types"] = details.get("types", [])
-                entity["wikidata_part_of"] = details.get("part_of", [])
-                entity["wikidata_has_parts"] = details.get("has_parts", [])
-                entity["wikidata_image_url"] = details.get("image_url")
+                
+                # Verwende die neue Pydantic-Modellstruktur
+                if wikidata_data.description:
+                    entity["wikidata_description"] = wikidata_data.description.get(lang) or wikidata_data.description.get("en")
+                
+                if wikidata_data.label:
+                    entity["wikidata_label"] = wikidata_data.label.get(lang) or wikidata_data.label.get("en")
+                
+                # Typen aus P31 (instance of) extrahieren
+                if wikidata_data.claims and "P31" in wikidata_data.claims:
+                    entity["wikidata_types"] = [prop.value for prop in wikidata_data.claims["P31"]]
+                
+                # Part-of-Beziehungen aus P361 (part of) extrahieren
+                if wikidata_data.claims and "P361" in wikidata_data.claims:
+                    entity["wikidata_part_of"] = [prop.value for prop in wikidata_data.claims["P361"]]
+                
+                # Has-parts-Beziehungen aus P527 (has part) extrahieren
+                if wikidata_data.claims and "P527" in wikidata_data.claims:
+                    entity["wikidata_has_parts"] = [prop.value for prop in wikidata_data.claims["P527"]]
+                
+                # Bild aus P18 (image) extrahieren
+                if wikidata_data.claims and "P18" in wikidata_data.claims and wikidata_data.claims["P18"]:
+                    entity["wikidata_image_url"] = wikidata_data.claims["P18"][0].value
     
     # 5. DBpedia-Informationen in einem Batch abrufen
     entities_for_dbpedia = {
@@ -110,23 +172,61 @@ def batch_link_entities(entities: List[Dict[str, Any]], config=None) -> List[Dic
     }
     
     if entities_for_dbpedia and config.get("USE_DBPEDIA", True):
-        dbpedia_results = batch_get_dbpedia_info(entities_for_dbpedia, config=config)
+        # Verwende den neuen DBpediaService
+        dbpedia_service = DBpediaService(config)
         
-        # Entitäten mit DBpedia-Informationen aktualisieren
-        for entity_name, dbpedia_data in dbpedia_results.items():
-            if entity_name not in entity_name_map:
-                continue
-                
-            entity = entity_name_map[entity_name]
+        # Erstelle EntityProcessingContext-Objekte für den Service
+        dbpedia_contexts: List[EntityProcessingContext] = []
+        # Make sure LanguageCode is imported if not already: from entityextractor.models.base import LanguageCode
+        lang_val = config.get("LANGUAGE", "de") # Default to 'de' or get from config
+
+        for name, url in entities_for_dbpedia.items():
+            original_entity_dict = entity_name_map.get(name)
+            if not original_entity_dict:
+                continue # Should not happen if entities_for_dbpedia is derived correctly
+
+            epc = EntityProcessingContext(
+                entity_name=name,
+                language=lang_val,
+                wikipedia_url=url,
+                wikipedia_language=lang_val # Assuming Wikipedia language is same as entity language
+            )
+            setattr(epc, '_original_entity_dict_ref', original_entity_dict) # Store ref to original dict
             
-            if dbpedia_data.get("status") == "found":
-                entity["dbpedia_resource_uri"] = dbpedia_data.get("resource_uri")
-                entity["dbpedia_abstract"] = dbpedia_data.get("abstract", "")
-                entity["dbpedia_types"] = dbpedia_data.get("types", [])
-                entity["dbpedia_categories"] = dbpedia_data.get("categories", [])
-                entity["dbpedia_subjects"] = dbpedia_data.get("subjects", [])
-                entity["dbpedia_part_of"] = dbpedia_data.get("part_of", [])
-                entity["dbpedia_has_parts"] = dbpedia_data.get("has_parts", [])
+            # If wikidata_id was populated by previous steps, add it to context
+            if original_entity_dict.get("wikidata_id"):
+                epc.wikidata_id = original_entity_dict["wikidata_id"]
+
+            dbpedia_contexts.append(epc)
+        
+        # Verarbeite Kontexte
+        if dbpedia_contexts:
+            asyncio.get_event_loop().run_until_complete(dbpedia_service.process_entities(dbpedia_contexts))
+        
+            # Entitäten mit DBpedia-Informationen aktualisieren
+            for context in dbpedia_contexts:
+                original_dict = getattr(context, '_original_entity_dict_ref', None)
+                if not original_dict:
+                    continue
+
+                dbpedia_service_output = context.get_service_data('dbpedia')
+                if dbpedia_service_output and dbpedia_service_output.get('dbpedia_data'):
+                    dbpedia_data = dbpedia_service_output['dbpedia_data']
+                    if dbpedia_data.status == "linked":
+                        original_dict["dbpedia_resource_uri"] = dbpedia_data.uri
+                        original_dict["dbpedia_label"] = dbpedia_data.label.get("en") if dbpedia_data.label else None
+                        original_dict["dbpedia_abstract"] = dbpedia_data.abstract.get("en", "") if dbpedia_data.abstract else ""
+                        original_dict["dbpedia_types"] = dbpedia_data.types if dbpedia_data.types else []
+                        original_dict["dbpedia_categories"] = dbpedia_data.categories if dbpedia_data.categories else []
+                        # Subjects sind jetzt in categories enthalten
+                        original_dict["dbpedia_subjects"] = dbpedia_data.categories if dbpedia_data.categories else []
+                        # Beziehungen
+                        original_dict["dbpedia_part_of"] = dbpedia_data.part_of if dbpedia_data.part_of else []
+                        original_dict["dbpedia_has_parts"] = dbpedia_data.has_parts if dbpedia_data.has_parts else []
+                    else:
+                        original_dict["dbpedia_status"] = dbpedia_data.status
+                        if dbpedia_data.error:
+                            original_dict["dbpedia_error"] = dbpedia_data.error
     
     return entities
 

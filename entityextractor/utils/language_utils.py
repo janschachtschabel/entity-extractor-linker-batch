@@ -2,30 +2,30 @@
 # -*- coding: utf-8 -*-
 
 """
-Sprachbezogene Hilfsfunktionen für den Entity Extractor.
+Language-related utilities for the Entity Extractor.
 
-Dieses Modul stellt Hilfsfunktionen für Spracherkennung, Sprachmappings
-und andere sprachbezogene Operationen zur Verfügung.
+This module provides helper functions for language detection, language mappings,
+and other language-related operations.
 """
 
-import logging
 import re
+from loguru import logger
 
 
 def detect_language(text):
     """
-    Einfache Spracherkennung basierend auf häufigen Wörtern in verschiedenen Sprachen.
+    Simple language detection based on common words in different languages.
     
     Args:
-        text: Der zu analysierende Text
+        text: The text to analyze
         
     Returns:
-        Der erkannte Sprachcode (de, en, fr, ...) oder None wenn nicht erkannt
+        The detected language code (de, en, fr, ...) or None if not recognized
     """
     if not text or len(text) < 3:
         return None
         
-    # Häufige Wörter in verschiedenen Sprachen
+    # Common words in different languages
     language_markers = {
         'de': ['der', 'die', 'das', 'und', 'ist', 'in', 'von', 'zu', 'mit', 'den', 'für', 'auf', 'ein', 'eine'],
         'en': ['the', 'and', 'is', 'in', 'to', 'of', 'for', 'with', 'on', 'at', 'from', 'by', 'an', 'as'],
@@ -33,10 +33,10 @@ def detect_language(text):
         'es': ['el', 'la', 'los', 'las', 'y', 'es', 'en', 'de', 'para', 'con', 'por', 'un', 'una', 'su']
     }
     
-    # Text in Kleinbuchstaben umwandeln und in Wörter aufteilen
+    # Convert text to lowercase and split into words
     words = text.lower().split()
     
-    # Zählen der Treffer pro Sprache
+    # Count matches per language
     matches = {lang: 0 for lang in language_markers}
     
     for word in words:
@@ -45,7 +45,7 @@ def detect_language(text):
             if clean_word in markers:
                 matches[lang] += 1
     
-    # Beste Übereinstimmung finden
+    # Find best match
     best_lang = None
     best_count = 0
     
@@ -54,24 +54,24 @@ def detect_language(text):
             best_count = count
             best_lang = lang
     
-    # Mindestanzahl an Übereinstimmungen für eine zuverlässige Erkennung
+    # Minimum number of matches for reliable detection
     if best_count >= 2:
         return best_lang
         
-    # Fallback: Überprüfe auf Umlaute für Deutsch
+    # Fallback: Check for German umlauts
     if any(char in text.lower() for char in 'äöüß'):
         return 'de'
         
-    # Standardeinstellung: Englisch
+    # Default: English
     return 'en'
 
 
 def get_language_map():
     """
-    Liefert ein Mapping von Sprachcodes zu vollständigen Sprachnamen.
+    Provides a mapping of language codes to full language names.
     
     Returns:
-        Dict mit Sprach-Codes als Schlüssel und vollständigen Sprachnamen als Werte
+        Dict with language codes as keys and full language names as values
     """
     return {
         "de": "German",
@@ -99,21 +99,21 @@ def get_language_map():
 
 def clean_title(title):
     """
-    Bereinigt einen Titel von Klammerzusätzen und anderen unerwünschten Formatierungen.
+    Cleans a title from parenthetical additions and other unwanted formatting.
     
     Args:
-        title: Der zu reinigende Titel
+        title: The title to clean
         
     Returns:
-        Bereinigter Titel
+        Cleaned title
     """
     if not title:
         return title
         
-    # Entferne Klammerzusätze wie "(Film)" oder "(Politiker)"
+    # Remove parenthetical additions like "(Film)" or "(Politician)"
     clean = re.sub(r'\s+\([^)]*\)$', '', title)
     
-    # Normalisiere Leerzeichen
+    # Normalize whitespace
     clean = ' '.join(clean.split())
     
     return clean
