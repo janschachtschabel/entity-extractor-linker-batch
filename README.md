@@ -24,14 +24,14 @@ Entity Extractor & Linker ist ein flexibles, modulares Tool zur automatisierten 
 
 ```bash
 # Repository klonen
-git clone https://github.com/janschachtschabel/entity-extractor-linker.git
-cd entity-extractor-linker
+git clone https://github.com/janschachtschabel/entity-extractor-linker-batch.git
+cd entity-extractor-linker-batch
 
 # Option 1: Entwicklungsinstallation (empfohlen)
 pip install -e .
 
 # Option 2: Produktion
-pip install entity-extractor-linker
+pip install entity-extractor-linker-batch
 ```
 
 Setze anschließend den OpenAI API Key in der Umgebungsvariable:

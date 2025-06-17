@@ -14,7 +14,7 @@ setup(
     version="1.0.0",
     author="Jan Schachtschabel",
     author_email="schachtschabel@edu-sharing.net",
-    description="A tool for extracting, generating and linking entities to knowledge bases with relationship inference",
+    description="A tool for extracting, generating and linking entities to knowledge bases with relationship inference.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/janschachtschabel/entity-extractor-linker-batch",
